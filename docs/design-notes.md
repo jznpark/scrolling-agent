@@ -23,6 +23,8 @@ Source: professor's draft *Scrolling Agent — 초기 연구 설계* v0.1 (2026-
 | Date | Decision |
 |---|---|
 | 2026-10-15 | Gymnasium + Stable-Baselines3 PPO (MaskablePPO for action masking); private repo |
+| 2026-10-15 | Feed: first type `z_1 ~ Bernoulli(p)` (stationary share of the persistence chain, so share ≈ p for any kappa) |
+| 2026-10-15 | Feed reordering: keep the item set and the number of z=1 items; draw the type sequence from the persistence chain with kappa conditioned on that count (exact DP sampling), then place items of each type in random order. kappa=0 = random shuffle. Position control (e.g. promising items first) not included yet |
 
 ## Open questions for the professor
 
