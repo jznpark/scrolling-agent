@@ -12,6 +12,9 @@ import math
 from dataclasses import dataclass, field, replace
 
 
+ATTENTION_MODES = ("none", "log", "power")
+
+
 @dataclass
 class TimeConfig:
     session_seconds: float = 120.0      # [draft] T
@@ -55,10 +58,27 @@ class DDMConfig:
     v0: float = 1.0                     # [draft] speed at which drift halves (screen heights / s)
     pv: float = 2.0                     # [draft] shape of speed attenuation
     dt_internal: float = 0.01           # [TBD] inner integration step for exposure while moving
+    # Attention split (extension; draft "주의 자원의 경쟁", cf. Kim 2025 v0 / log2 N). Off by
+    # default. Drift of each visible, not yet understood item is multiplied by h(N), N = the
+    # number of such items on screen at that moment.
+    attention: str = "none"             # [ext] "none" | "log": 1/log2(N+1) | "power": N^-attention_beta
+    attention_beta: float = 1.0         # [ext] exponent of "power" (1 = attention shared equally)
+
+    def __post_init__(self) -> None:
+        if self.attention not in ATTENTION_MODES:
+            raise ValueError(f"ddm.attention must be one of {ATTENTION_MODES}, got {self.attention!r}")
 
     def speed_gain(self, speed: float) -> float:
         """g(|v|) = 1 / (1 + (|v|/v0)^pv); g(0) = 1."""
         return 1.0 / (1.0 + (abs(speed) / self.v0) ** self.pv)
+
+    def attention_gain(self, n_unread: int) -> float:
+        """h(N) for N visible unread items; h(1) = 1 in every mode, h(0) = 1."""
+        if self.attention == "none" or n_unread <= 1:
+            return 1.0
+        if self.attention == "log":
+            return 1.0 / math.log2(n_unread + 1)
+        return float(n_unread) ** -self.attention_beta
 
 
 @dataclass

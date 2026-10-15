@@ -17,6 +17,9 @@ Actions (flat discrete index, for MaskablePPO), with S speeds and K slots:
     2S+K+1             back           WATCH -> LIST at the previous scroll position
 An action outside `action_masks()` is replaced by stay(None).
 
+Attention split (DDMConfig.attention, off by default): the drift of each visible
+unread item is multiplied by h(N), N = number of visible unread items.
+
 Observation (float32 vector, physical units; hidden A, lambda of items not yet
 understood, true nu and latent z are never included):
     global   mode one-hot (LIST, WATCH, TRANSITION), transition left (fraction),
@@ -131,6 +134,7 @@ class ScrollingEnv(gym.Env):
         self.understood = np.zeros(n, dtype=bool)
         self.exposure = np.zeros(n)
         self.w = np.zeros(n)
+        self._unread_seconds = 0.0  # integral of N (visible unread items) over list time
         self.step_count = 0
         self.time_by_mode = {name: 0.0 for name in MODE_NAMES}
         self.watch_reward_total = 0.0
@@ -206,9 +210,10 @@ class ScrollingEnv(gym.Env):
             vis = visible_items(self.scroll, self.n_items, self.screen_h, scr.visible_fraction)
             self.exposure[vis] += h
             active = vis[~self.understood[vis]]
+            self._unread_seconds += active.size * h
             if active.size == 0:
                 continue
-            drift = self.feed.nu[active] * ddm.speed_gain(speed)
+            drift = self.feed.nu[active] * ddm.speed_gain(speed) * ddm.attention_gain(active.size)
             self.x[active] = advance_evidence(self.x[active], drift, ddm.noise, h, self._rng_ddm)
             self.understood[active[self.x[active] >= ddm.threshold]] = True
 
@@ -239,8 +244,13 @@ class ScrollingEnv(gym.Env):
         return np.where(self.understood, self.feed.A, 0.0), np.where(self.understood, self.feed.lam, 0.0)
 
     def extra_metrics(self) -> dict[str, float]:
-        """Episode counters of optional model extensions (empty in the MVP)."""
-        return {}
+        """Episode counters of optional model extensions.
+
+        mean_unread_on_screen: time average, over list time, of the number of visible items
+            not yet understood (the N of the attention split)
+        """
+        list_time = self.time_by_mode["LIST"]
+        return {"mean_unread_on_screen": self._unread_seconds / list_time if list_time else 0.0}
 
     def _obs(self) -> np.ndarray:
         n, H, B = self.n_items, self.screen_h, self.cfg.ddm.threshold

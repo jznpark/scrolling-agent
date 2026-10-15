@@ -15,7 +15,7 @@ import numpy as np
 from matplotlib.animation import FuncAnimation
 from matplotlib.patches import Rectangle
 
-from .env import MODE_NAMES, TRANSITION, WATCH
+from .env import LIST, MODE_NAMES, TRANSITION, WATCH, visible_items
 from .evaluation import EpisodeTrace
 
 Z_COLORS = ("#1f77b4", "#ff7f0e")  # z = 0, z = 1
@@ -36,6 +36,12 @@ def _first_understood(trace: EpisodeTrace) -> tuple[np.ndarray, np.ndarray]:
     return np.flatnonzero(ever), step[ever]
 
 
+def unread_on_screen(trace: EpisodeTrace, k: int) -> int:
+    """Visible, not yet understood items after step k (the N of the attention split)."""
+    vis = visible_items(trace.scroll[k], trace.feed.n, trace.screen_h, 0.5)
+    return int(np.sum(~trace.understood[k, vis]))
+
+
 def episode_summary(trace: EpisodeTrace) -> dict[str, float]:
     f, w = trace.feed, trace.w[-1]
     watch_runs = _runs(trace.mode == WATCH)
@@ -49,6 +55,8 @@ def episode_summary(trace: EpisodeTrace) -> dict[str, float]:
         "time WATCH (s)": float(np.sum(trace.mode == WATCH) * trace.dt),
         "time TRANSITION (s)": float(np.sum(trace.mode == TRANSITION) * trace.dt),
         "deepest item seen": int(np.flatnonzero(trace.exposure[-1] > 0).max(initial=-1)),
+        "mean unread on screen": float(np.mean([unread_on_screen(trace, k)
+                                                for k in np.flatnonzero(trace.mode == LIST)] or [0])),
     }
 
 
@@ -169,7 +177,8 @@ def animate_episode(
         ax_list.set_xticks([])
         ax_list.set_ylabel("list position")
         what = f" — item #{cur}" if cur >= 0 else ""
-        ax_list.set_title(f"t = {t[k]:5.1f} s   {MODE_NAMES[mode]}{what}   (dashed box = screen)")
+        crowd = f"   unread on screen: {unread_on_screen(trace, k)}" if mode == LIST else ""
+        ax_list.set_title(f"t = {t[k]:5.1f} s   {MODE_NAMES[mode]}{what}{crowd}   (dashed box = screen)")
         line.set_data(t[: k + 1], cum[: k + 1])
         dot.set_data([t[k]], [cum[k]])
         ax_rew.set_title(f"return so far {cum[k]:.2f}")
