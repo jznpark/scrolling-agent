@@ -28,3 +28,7 @@ tb_logs/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Personal Claude Code settings
+CLAUDE.local.md
+.claude/settings.local.json
