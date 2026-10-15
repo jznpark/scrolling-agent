@@ -234,10 +234,17 @@ class ScrollingEnv(gym.Env):
         """Current observation (the same vector reset / step return)."""
         return self._obs()
 
+    def revealed_profile(self) -> tuple[np.ndarray, np.ndarray]:
+        """(A, lambda) as the agent knows them: revealed for understood items, 0 otherwise."""
+        return np.where(self.understood, self.feed.A, 0.0), np.where(self.understood, self.feed.lam, 0.0)
+
+    def extra_metrics(self) -> dict[str, float]:
+        """Episode counters of optional model extensions (empty in the MVP)."""
+        return {}
+
     def _obs(self) -> np.ndarray:
         n, H, B = self.n_items, self.screen_h, self.cfg.ddm.threshold
-        A_known = np.where(self.understood, self.feed.A, 0.0)
-        lam_known = np.where(self.understood, self.feed.lam, 0.0)
+        A_known, lam_known = self.revealed_profile()
         x_rel = np.minimum(self.x / B, 1.0)
 
         g = np.zeros(self._n_global)

@@ -19,7 +19,7 @@ from pathlib import Path
 import numpy as np
 
 from scrolling_agent import ScrollingEnv, TrainConfig
-from scrolling_agent.cli import add_feed_args, config_from_args
+from scrolling_agent.cli import add_config_args, config_from_args
 from scrolling_agent.evaluation import evaluate, summarize
 from scrolling_agent.policies import GreedyKnown, PPOPolicy, RandomPolicy, ScrollFirst, reference_return
 
@@ -41,7 +41,7 @@ def main() -> None:
     parser.add_argument("--episodes", type=int, default=100)
     parser.add_argument("--rho", type=float, default=None, help="fix rho instead of tuning")
     parser.add_argument("--tune-episodes", type=int, default=20)
-    add_feed_args(parser)
+    add_config_args(parser)
     args = parser.parse_args()
 
     cfg = config_from_args(args)

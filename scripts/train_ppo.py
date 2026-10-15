@@ -24,7 +24,7 @@ from pathlib import Path
 import gymnasium as gym
 
 from scrolling_agent import ScrollingEnv, TrainConfig
-from scrolling_agent.cli import add_feed_args, config_from_args
+from scrolling_agent.cli import add_config_args, config_from_args
 
 
 class CycleSeeds(gym.Wrapper):
@@ -48,7 +48,7 @@ def main() -> None:
     parser.add_argument("--timesteps", type=int, default=None, help="default: TrainConfig.total_timesteps")
     parser.add_argument("--n-envs", type=int, default=None)
     parser.add_argument("--gamma", type=float, default=None)
-    add_feed_args(parser)
+    add_config_args(parser)
     args = parser.parse_args()
 
     from sb3_contrib import MaskablePPO

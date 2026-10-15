@@ -7,13 +7,14 @@ only what the agent observes: visible slots, understood flags, the revealed
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
 import numpy as np
 
-from .config import Config
+from .config import Config, config_from_dict
 from .env import TRANSITION, WATCH, ScrollingEnv
 from .feed import Feed
 
@@ -23,9 +24,10 @@ class Policy(Protocol):
 
 
 def known_rates(env: ScrollingEnv) -> np.ndarray:
-    """Current reward rate A exp(-lambda w) of understood items; -inf for the rest."""
-    rate = env.feed.A * np.exp(-env.feed.lam * env.w)
-    return np.where(env.understood, rate, -np.inf)
+    """Current reward rate A exp(-lambda w) of understood items as the agent knows
+    them (`revealed_profile`); -inf for the rest."""
+    A, lam = env.revealed_profile()
+    return np.where(env.understood, A * np.exp(-lam * env.w), -np.inf)
 
 
 @dataclass
@@ -67,10 +69,13 @@ class ScrollFirst:
 class GreedyKnown:
     """Go to the understood item with the highest current rate (on or off screen,
     so it revisits) and watch it while the rate is at least `rho`; when no known
-    item reaches `rho`, scroll down to explore."""
+    item reaches `rho`, scroll down to explore. With `dwell` > 0 it first stops
+    while a visible item is not yet understood and has been on screen for less
+    than `dwell` seconds ("stop and look")."""
 
     rho: float = 0.3
     speed: int = 0
+    dwell: float = 0.0
 
     def __call__(self, env: ScrollingEnv) -> int:
         if env.mode == TRANSITION:
@@ -82,8 +87,9 @@ class GreedyKnown:
         target = int(np.argmax(rates))
         visible = list(env.visible_slots())
         if rates[target] < self.rho:
+            pending = [i for i in visible if not env.understood[i] and env.exposure[i] < self.dwell]
             at_bottom = env.scroll >= env.max_scroll
-            return env.stay_action if at_bottom else env.down_actions[self.speed]
+            return env.stay_action if pending or at_bottom else env.down_actions[self.speed]
         if target in visible:
             return env.slot_actions[visible.index(target)]
         return env.up_actions[self.speed] if target < visible[0] else env.down_actions[self.speed]
@@ -106,9 +112,11 @@ class PPOPolicy:
         run_dir = Path(run_dir)
         model = MaskablePPO.load(run_dir / f"{which}_model.zip", device="cpu")
         stats = run_dir / f"{which}_vecnormalize.pkl"
+        cfg_file = run_dir / "config.json"
+        cfg = config_from_dict(json.loads(cfg_file.read_text())["config"]) if cfg_file.exists() else None
         vecnormalize = None
         if stats.exists():
-            vecnormalize = VecNormalize.load(str(stats), DummyVecEnv([ScrollingEnv]))
+            vecnormalize = VecNormalize.load(str(stats), DummyVecEnv([lambda: ScrollingEnv(cfg)]))
             vecnormalize.training = False
         return cls(model, vecnormalize, deterministic)
 

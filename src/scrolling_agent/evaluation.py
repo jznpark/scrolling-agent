@@ -7,8 +7,10 @@ from typing import Any
 
 import numpy as np
 
-from .env import LIST, ScrollingEnv
+from .env import LIST, WATCH, ScrollingEnv
 from .feed import Feed
+
+SHORT_BOUT_SECONDS = 1.0  # a watch bout this short counts as "opened and left at once"
 
 
 @dataclass
@@ -47,7 +49,8 @@ def run_episode(
     rows: dict[str, list] = {k: [] for k in ("scroll", "mode", "current", "action", "reward",
                                              "x", "understood", "exposure", "w")}
     total = 0.0
-    n_clicks = n_revisits = n_invalid = 0
+    n_clicks = n_revisits = n_invalid = n_stay_list = 0
+    bouts: list[int] = []  # length (steps) of each uninterrupted watch bout
     terminated = False
     while not terminated:
         mode_before = env.mode
@@ -59,6 +62,11 @@ def run_episode(
         _, reward, terminated, _, info = env.step(action)
         total += reward
         n_invalid += int(info["invalid_action"])
+        n_stay_list += int(mode_before == LIST and env.mode == LIST and action == env.stay_action)
+        if mode_before == WATCH and env.mode == WATCH:
+            bouts[-1] += 1
+        elif mode_before != WATCH and env.mode == WATCH:
+            bouts.append(0)
         if record:
             rows["scroll"].append(env.scroll)
             rows["mode"].append(env.mode)
@@ -71,6 +79,8 @@ def run_episode(
             rows["w"].append(env.w.copy())
 
     times = info["time_by_mode"]
+    dt = env.cfg.time.dt
+    bout_s = np.array(bouts) * dt
     metrics = {
         "return": total,
         "watch_reward": env.watch_reward_total,
@@ -81,8 +91,12 @@ def run_episode(
         "time_list": times["LIST"],
         "time_watch": times["WATCH"],
         "time_transition": times["TRANSITION"],
+        "time_stay_list": n_stay_list * dt,
+        "n_short_bouts": int(np.sum(bout_s <= SHORT_BOUT_SECONDS + 1e-9)),
+        "mean_bout": float(bout_s.mean()) if bout_s.size else 0.0,
         "max_item_seen": int(np.flatnonzero(env.exposure > 0).max(initial=-1)),
         "invalid_actions": n_invalid,
+        **env.extra_metrics(),
     }
     trace = None
     if record:

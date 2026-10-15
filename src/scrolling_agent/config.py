@@ -9,7 +9,7 @@ and should be revisited once the environment runs.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 
 @dataclass
@@ -83,6 +83,16 @@ class Config:
     screen: ScreenConfig = field(default_factory=ScreenConfig)
     ddm: DDMConfig = field(default_factory=DDMConfig)
     feed: FeedConfig = field(default_factory=FeedConfig)
+
+
+def config_from_dict(data: dict) -> Config:
+    """Rebuild a Config from `dataclasses.asdict` output (e.g. a run's config.json)."""
+    cfg = Config()
+    for section, values in data.items():
+        current = getattr(cfg, section)
+        fixed = {k: tuple(v) if isinstance(v, list) else v for k, v in values.items()}
+        setattr(cfg, section, replace(current, **fixed))
+    return cfg
 
 
 @dataclass

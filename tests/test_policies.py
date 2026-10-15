@@ -55,6 +55,19 @@ def test_greedy_goes_back_to_a_known_item_off_screen():
     assert env.current == 0 and env.up_actions[0] in actions
 
 
+def test_greedy_dwell_stops_until_items_are_understood():
+    env = ScrollingEnv(feed=constant_feed(A=0.2))  # nothing worth watching
+    env.reset(seed=0)
+    policy = GreedyKnown(rho=0.6, dwell=1.5)
+    # at the start nothing is understood: it stays instead of scrolling
+    assert policy(env) == env.stay_action
+    while policy(env) == env.stay_action:
+        env.step(env.stay_action)
+    vis = env.visible_slots()
+    assert all(env.understood[i] or env.exposure[i] >= 1.5 for i in vis)
+    assert GreedyKnown(rho=0.6)(env) == env.down_actions[0]
+
+
 def test_reference_return_single_item_closed_form():
     cfg = Config()
     feed = Feed(z=np.zeros(1, np.int8), A=np.array([2.0]), nu=np.ones(1), lam=np.array([0.1]))

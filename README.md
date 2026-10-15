@@ -72,7 +72,14 @@ tensorboard --logdir runs                                          # 학습 곡�
 
 # 3) 비교 평가 — 같은 미사용 목록 100개에서 PPO와 비교 정책
 python scripts\evaluate.py --runs runs\pilot
+
+# 4) 조건 비교 시뮬레이션 — 조건(이름 + 설정 변경) x 정책, 같은 목록에서
+python scripts\simulate.py --cond base --cond crowded screen.cards_per_screen=5
+python scripts\simulate.py --cond base --cond kappa08 feed.kappa=0.8 --tune     # 조건마다 rho 다시 맞춤
 ```
+
+어떤 설정이든 `--set 섹션.필드=값`으로 바꿀 수 있습니다 (예: `--set ddm.noise=0.3 screen.speeds="(0.5, 1.5)"`).
+섹션: `time`, `screen`, `ddm`, `feed` (+ 확장 브랜치의 새 섹션).
 
 `--seed`는 목록과 DDM 잡음을 고릅니다. 10000번 이상은 학습에 쓰지 않은 평가용 목록입니다.
 그림의 z 색과 아직 이해하지 못한 후보의 A·ν는 에이전트에게 보이지 않는 값이며, 분석용으로만 표시합니다.

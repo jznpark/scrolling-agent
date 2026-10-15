@@ -6,6 +6,7 @@ Run (PowerShell, venv active):
     python scripts\\visualize.py --policy ppo --run runs\\pilot --animate
     python scripts\\visualize.py --policy ppo --run runs\\pilot --save runs\\pilot\\ep.png
     python scripts\\visualize.py --policy greedy --kappa 0.8 --d-nu -0.7   # another feed
+    python scripts\\visualize.py --policy greedy --dwell 1.5 --set screen.cards_per_screen=5
 
 Policies: random, scrollfirst, greedy, ppo (needs --run). --seed picks the list
 and DDM noise (10000+ = evaluation lists the PPO never trained on).
@@ -17,7 +18,7 @@ from __future__ import annotations
 import argparse
 
 from scrolling_agent import ScrollingEnv
-from scrolling_agent.cli import add_feed_args, config_from_args, make_policy
+from scrolling_agent.cli import add_config_args, config_from_args, make_policy
 from scrolling_agent.evaluation import run_episode
 
 
@@ -27,13 +28,14 @@ def main() -> None:
     parser.add_argument("--run", default=None, help="PPO run folder (runs/<name>)")
     parser.add_argument("--which", default="best", choices=["best", "final"])
     parser.add_argument("--rho", type=float, default=0.3, help="watch threshold of the baselines")
+    parser.add_argument("--dwell", type=float, default=0.0, help="greedy: stop up to this long per unread item")
     parser.add_argument("--seed", type=int, default=10_000)
     parser.add_argument("--animate", action="store_true")
     parser.add_argument("--every", type=int, default=2, help="animation: draw every k-th step")
     parser.add_argument("--interval", type=int, default=50, help="animation: ms per frame")
     parser.add_argument("--hide-hidden", action="store_true", help="animation: do not print hidden A, nu, z")
     parser.add_argument("--save", default=None, help="output file instead of a window")
-    add_feed_args(parser)
+    add_config_args(parser)
     args = parser.parse_args()
 
     import matplotlib
@@ -45,7 +47,7 @@ def main() -> None:
     from scrolling_agent.viz import animate_episode, episode_summary, plot_episode
 
     env = ScrollingEnv(config_from_args(args))
-    policy = make_policy(args.policy, args.rho, args.run, args.which)
+    policy = make_policy(args.policy, args.rho, args.run, args.which, dwell=args.dwell)
     _, trace = run_episode(env, policy, seed=args.seed, record=True)
     for k, v in episode_summary(trace).items():
         print(f"{k:<20} {v:.2f}" if isinstance(v, float) else f"{k:<20} {v}")
