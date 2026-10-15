@@ -18,7 +18,7 @@ After an item stops being visible, its evidence keeps accumulating with a decayi
 - `residual_in_watch` (default False): also continue while the list is hidden by watching or
   a transition (the draft stops the list DDM while watching, so this is off by default).
 - Residual draws use the DDM stream only when `tau_residual > 0`: off = bit-identical to the MVP.
-- Cost: about 3–4x slower simulation with the extension on (residual update per inner step).
+- Cost: about 2x slower simulation with the extension on (measured: 10 greedy episodes 1.1 s -> 2.3 s; residual update per inner step).
 
 | Setting | Default | Meaning |
 |---|---|---|
