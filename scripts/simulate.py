@@ -92,12 +92,15 @@ def main() -> None:
 
     extra = [k for k in table[0][2] if k not in BASE_COLUMNS and k not in SKIP_COLUMNS]
     columns = BASE_COLUMNS + extra
-    header = f"{'condition':<14}{'policy':<24}" + "".join(f"{c:>15}" for c in columns)
+    width = {c: max(len(c) + 2, 10) for c in columns}
+    width["return"] = 16
+    header = f"{'condition':<14}{'policy':<24}" + "".join(f"{c:>{width[c]}}" for c in columns)
     print(header)
     print("-" * len(header))
     for name, label, stats, secs in table:
-        ret = f"{stats['return'][0]:>8.2f} +-{stats['return'][1]:>4.1f}"
-        rest = "".join(f"{stats[c][0]:>15.2f}" if c in stats else f"{'-':>15}" for c in columns[1:])
+        ret = f"{stats['return'][0]:>9.2f} +-{stats['return'][1]:>4.1f}"
+        rest = "".join(f"{stats[c][0]:>{width[c]}.2f}" if c in stats else f"{'-':>{width[c]}}"
+                       for c in columns[1:])
         print(f"{name:<14}{label:<24}{ret}{rest}   ({secs:.0f}s)")
 
     out = Path("runs") / "sim" / f"{time.strftime('%Y%m%d-%H%M%S')}.csv"
