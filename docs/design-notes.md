@@ -25,6 +25,12 @@ Source: professor's draft *Scrolling Agent — 초기 연구 설계* v0.1 (2026-
 | 2026-10-15 | Gymnasium + Stable-Baselines3 PPO (MaskablePPO for action masking); private repo |
 | 2026-10-15 | Feed: first type `z_1 ~ Bernoulli(p)` (stationary share of the persistence chain, so share ≈ p for any kappa) |
 | 2026-10-15 | Feed reordering: keep the item set and the number of z=1 items; draw the type sequence from the persistence chain with kappa conditioned on that count (exact DP sampling), then place items of each type in random order. kappa=0 = random shuffle. Position control (e.g. promising items first) not included yet |
+| 2026-10-15 | Env geometry: card height 1, screen 3 cards, scroll s = top edge in cards, clamped to [0, n − 3]; visible slots = up to 4 (two half cards at the edges) |
+| 2026-10-15 | Env boundary: moving into the edge is allowed (time and cost pass, draft wording); the DDM uses the actual speed, so a blocked move gives g = 1 |
+| 2026-10-15 | Env transition: click / back count `transition_steps` (= 2) from the step the action is chosen; during it only stay(None) is valid. Invalid actions are replaced by stay(None) |
+| 2026-10-15 | Env episode end: `terminated=True` after N steps (remaining time is observed, so the end is part of the task, not a time limit) |
+| 2026-10-15 | Env observation: flat float32 vector in physical units (s, reward/s, 1/s), 655 values for 100 items; scaling / normalisation is left to the training stage |
+| 2026-10-15 | Seeds: `reset(seed)` spawns separate feed and DDM generators; `options={"feed": ...}` fixes the list while the DDM seed varies |
 
 ## Open questions for the professor
 

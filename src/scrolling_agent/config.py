@@ -29,6 +29,11 @@ class TimeConfig:
         """c / dt — keep this equal when comparing different dt."""
         return self.step_cost / self.dt
 
+    @property
+    def transition_steps(self) -> int:
+        """Steps taken by one click or back transition."""
+        return int(round(self.transition_seconds / self.dt))
+
 
 @dataclass
 class ScreenConfig:
@@ -36,6 +41,11 @@ class ScreenConfig:
     cards_per_screen: float = 3.0       # [draft] screen height ≈ 3 cards
     visible_fraction: float = 0.5       # [draft] DDM active when ≥ 50% of a thumbnail is visible
     speeds: tuple[float, ...] = (0.5,)  # [draft] screen heights / s; later (0.5, 1.5)
+
+    @property
+    def max_visible_slots(self) -> int:
+        """Most items that can pass the visibility rule at once (two half cards at the edges)."""
+        return math.ceil(self.cards_per_screen) + 1
 
 
 @dataclass
