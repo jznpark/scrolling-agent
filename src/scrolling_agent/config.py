@@ -78,11 +78,27 @@ class FeedConfig:
 
 
 @dataclass
+class EstimateConfig:
+    """Value estimation error (extension; draft "이해 후 보상 추정 오차"). Off by default.
+
+    On understanding, the agent sees log-noisy values
+        log A_hat = log A + sigma_est * eps_A * f(w),   (same for lambda if noise_lambda)
+    where f(w) = exp(-w / tau_learn) fades the error while the item is watched;
+    tau_learn = 0 means the true values are known after the first watched step.
+    """
+
+    sigma_est: float = 0.0              # [ext] log-scale error at understanding; 0 = exact (MVP)
+    noise_lambda: bool = True           # [ext] also perturb lambda
+    tau_learn: float = 0.0              # [ext] s of watching over which the error fades
+
+
+@dataclass
 class Config:
     time: TimeConfig = field(default_factory=TimeConfig)
     screen: ScreenConfig = field(default_factory=ScreenConfig)
     ddm: DDMConfig = field(default_factory=DDMConfig)
     feed: FeedConfig = field(default_factory=FeedConfig)
+    estimate: EstimateConfig = field(default_factory=EstimateConfig)
 
 
 def config_from_dict(data: dict) -> Config:

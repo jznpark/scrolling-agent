@@ -100,6 +100,14 @@ def plot_episode(trace: EpisodeTrace, title: str | None = None) -> plt.Figure:
             sel &= f.z == z
             ax_val.scatter(f.A[sel], trace.w[-1][sel], c=Z_COLORS[z], marker=marker, s=25,
                            label=f"z={z}, {'understood' if flag else 'not understood'}")
+    # perceived A at understanding -> true A (only differs with EstimateConfig.sigma_est > 0)
+    items_u, steps_u = _first_understood(trace)
+    A_first = trace.A_known[steps_u, items_u]
+    differs = ~np.isclose(A_first, f.A[items_u])
+    if differs.any():
+        y = trace.w[-1][items_u[differs]]
+        ax_val.hlines(y, A_first[differs], f.A[items_u[differs]], color="0.6", lw=0.8)
+        ax_val.scatter(A_first[differs], y, marker="|", c="0.4", s=40, label="perceived A at understanding")
     ax_val.set_xlabel("true A (hidden until understood)")
     ax_val.set_ylabel("watch time w (s)")
     ax_val.set_title("Did it watch the valuable items?")
@@ -154,9 +162,13 @@ def animate_episode(
             ax_list.add_patch(Rectangle((0.06, i + 0.72), 0.88 * frac, 0.14,
                                         color=WATCH_COLOR if und else "#1f77b4"))
             if und:
-                w = trace.w[k, i]
-                rate = f.A[i] * np.exp(-f.lam[i] * w)
-                label = f"#{i}  A={f.A[i]:.2f}  λ={f.lam[i]:.2f}  w={w:.1f}s  rate={rate:.2f}"
+                w, A, lam = trace.w[k, i], trace.A_known[k, i], trace.lam_known[k, i]
+                rate = A * np.exp(-lam * w)
+                label = f"#{i}  A={A:.2f}  λ={lam:.2f}  w={w:.1f}s  rate={rate:.2f}"
+                if show_hidden and not np.isclose([A, lam], [f.A[i], f.lam[i]]).all():
+                    ax_list.text(0.06, i + 0.55, f"true: A={f.A[i]:.2f} λ={f.lam[i]:.2f} "
+                                 f"rate={f.A[i] * np.exp(-f.lam[i] * w):.2f}",
+                                 fontsize=8, color="#d62728", va="center", style="italic", clip_on=True)
             else:
                 label = f"#{i}  evidence {trace.x[k, i] / B:.2f}  seen {trace.exposure[k, i]:.1f}s"
             ax_list.text(0.06, i + 0.3, label, fontsize=10, va="center", clip_on=True)
