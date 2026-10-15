@@ -15,7 +15,7 @@ import numpy as np
 from matplotlib.animation import FuncAnimation
 from matplotlib.patches import Rectangle
 
-from .env import MODE_NAMES, TRANSITION, WATCH
+from .env import MODE_NAMES, TRANSITION, WATCH, visible_items
 from .evaluation import EpisodeTrace
 
 Z_COLORS = ("#1f77b4", "#ff7f0e")  # z = 0, z = 1
@@ -34,6 +34,18 @@ def _first_understood(trace: EpisodeTrace) -> tuple[np.ndarray, np.ndarray]:
     ever = trace.understood[-1]
     step = np.argmax(trace.understood, axis=0)
     return np.flatnonzero(ever), step[ever]
+
+
+def off_screen_understood(trace: EpisodeTrace, items: np.ndarray, steps: np.ndarray) -> np.ndarray:
+    """Which first understandings happened after the agent had scrolled away from the item
+    (residual processing): it was outside the screen window both before and after that step.
+    Items understood while the list was hidden but still under the window do not count."""
+    def on_screen(k: int, i: int) -> bool:
+        scroll = trace.scroll[k] if k >= 0 else 0.0
+        return i in visible_items(scroll, trace.feed.n, trace.screen_h, 0.5)
+
+    return np.array([not on_screen(k, i) and not on_screen(k - 1, i) for i, k in zip(items, steps)],
+                    dtype=bool)
 
 
 def episode_summary(trace: EpisodeTrace) -> dict[str, float]:
@@ -65,10 +77,15 @@ def plot_episode(trace: EpisodeTrace, title: str | None = None) -> plt.Figure:
     # scroll path: the screen window, understanding events, watch bouts
     ax_path.fill_between(t - dt, trace.scroll, trace.scroll + H, step="post", color="0.88", label="screen")
     items, steps = _first_understood(trace)
+    late = off_screen_understood(trace, items, steps)
     for z in (0, 1):
-        sel = f.z[items] == z
+        sel = (f.z[items] == z) & ~late
         ax_path.scatter(t[steps[sel]], items[sel] + 0.5, s=30, facecolors="none",
                         edgecolors=Z_COLORS[z], label=f"understood (z={z})")
+    if late.any():
+        ax_path.scatter(t[steps[late]], items[late] + 0.5, s=110, marker="*",
+                        c=[Z_COLORS[z] for z in f.z[items[late]]], edgecolors="k", linewidths=0.5,
+                        label="understood off screen", zorder=5)
     for a, b in _runs(trace.mode == WATCH):
         i = trace.current[a]
         ax_path.plot([t[a] - dt, t[b - 1]], [i + 0.5] * 2, lw=6, solid_capstyle="butt",
@@ -140,6 +157,10 @@ def animate_episode(
     ax_rew.set_xlabel("time (s)")
     ax_rew.set_ylabel("cumulative reward")
 
+    items_u, steps_u = _first_understood(trace)
+    late = off_screen_understood(trace, items_u, steps_u)
+    late_events = list(zip(steps_u[late], items_u[late]))
+
     def draw(k: int):
         ax_list.cla()
         s, mode, cur = trace.scroll[k], trace.mode[k], trace.current[k]
@@ -170,6 +191,11 @@ def animate_episode(
         ax_list.set_ylabel("list position")
         what = f" — item #{cur}" if cur >= 0 else ""
         ax_list.set_title(f"t = {t[k]:5.1f} s   {MODE_NAMES[mode]}{what}   (dashed box = screen)")
+        recent = [i for step, i in late_events if k - int(2.0 / trace.dt) < step <= k]
+        if recent:
+            ax_list.text(0.5, 0.02, "understood off screen: " + ", ".join(f"#{i}" for i in recent),
+                         transform=ax_list.transAxes, ha="center", fontsize=11, color="k",
+                         bbox={"facecolor": "#fff3b0", "edgecolor": "0.5"})
         line.set_data(t[: k + 1], cum[: k + 1])
         dot.set_data([t[k]], [cum[k]])
         ax_rew.set_title(f"return so far {cum[k]:.2f}")

@@ -55,6 +55,12 @@ class DDMConfig:
     v0: float = 1.0                     # [draft] speed at which drift halves (screen heights / s)
     pv: float = 2.0                     # [draft] shape of speed attenuation
     dt_internal: float = 0.01           # [TBD] inner integration step for exposure while moving
+    # Off-screen residual processing (extension, team hypothesis). Off by default (draft:
+    # evidence frozen off screen). After an item stops being visible, its evidence keeps
+    # accumulating with weight exp(-s / tau_residual), s = time since it was last visible:
+    # in expectation tau_residual extra seconds of processing at the drift it had on screen.
+    tau_residual: float = 0.0           # [ext] s; 0 = frozen (MVP)
+    residual_in_watch: bool = False     # [ext] also while watching / in transitions (list hidden)
 
     def speed_gain(self, speed: float) -> float:
         """g(|v|) = 1 / (1 + (|v|/v0)^pv); g(0) = 1."""

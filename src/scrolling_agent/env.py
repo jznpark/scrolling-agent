@@ -17,6 +17,10 @@ Actions (flat discrete index, for MaskablePPO), with S speeds and K slots:
     2S+K+1             back           WATCH -> LIST at the previous scroll position
 An action outside `action_masks()` is replaced by stay(None).
 
+Off-screen residual processing (DDMConfig.tau_residual, off by default): once an
+item leaves the screen its evidence keeps growing with a decaying weight, so it
+can be understood (and revealed) off screen.
+
 Observation (float32 vector, physical units; hidden A, lambda of items not yet
 understood, true nu and latent z are never included):
     global   mode one-hot (LIST, WATCH, TRANSITION), transition left (fraction),
@@ -62,6 +66,11 @@ def advance_evidence(
 ) -> np.ndarray:
     """One Euler–Maruyama step of dx = drift dt + sigma dW."""
     return x + drift * dt + sigma * np.sqrt(dt) * rng.standard_normal(np.shape(x))
+
+
+def residual_weight(since0: np.ndarray, since1: np.ndarray, tau: float) -> np.ndarray:
+    """Effective processing time of exp(-s / tau) over s in [since0, since1]."""
+    return tau * (np.exp(-since0 / tau) - np.exp(-since1 / tau))
 
 
 def watch_reward(A: float, lam: float, w: float, dt: float) -> float:
@@ -131,6 +140,11 @@ class ScrollingEnv(gym.Env):
         self.understood = np.zeros(n, dtype=bool)
         self.exposure = np.zeros(n)
         self.w = np.zeros(n)
+        self.last_visible = np.full(n, np.nan)  # session time an item was last on screen
+        self.gain_last = np.zeros(n)            # speed gain g(|v|) it had then
+        self.understood_off_screen = np.zeros(n, dtype=bool)  # threshold reached after scrolling away
+        self.understood_hidden = np.zeros(n, dtype=bool)      # ... while the list was hidden (watching)
+        self._n_late_clicks = 0
         self.step_count = 0
         self.time_by_mode = {name: 0.0 for name in MODE_NAMES}
         self.watch_reward_total = 0.0
@@ -147,18 +161,22 @@ class ScrollingEnv(gym.Env):
 
         if self.mode == LIST and action in self.slot_actions:
             self.current = int(self.visible_slots()[self.slot_actions.index(action)])
+            self._n_late_clicks += int(self.understood_off_screen[self.current])
             self._start_transition(WATCH)
         elif self.mode == WATCH and action == self.back_action:
             self._start_transition(LIST)
 
         reward_watch = 0.0
+        t0 = self.step_count * dt
+        if self.mode != LIST and self.cfg.ddm.residual_in_watch:
+            self._advance_residual(t0, t0 + dt, exclude=np.array([], dtype=int))
         if self.mode == TRANSITION:
             self._transition_left -= 1
             if self._transition_left == 0:
                 self.mode = self._transition_to
             self.time_by_mode["TRANSITION"] += dt
         elif self.mode == LIST:
-            self._advance_list(self._velocity(action), dt)
+            self._advance_list(self._velocity(action), dt, t0)
             self.time_by_mode["LIST"] += dt
         else:
             i = self.current
@@ -194,23 +212,48 @@ class ScrollingEnv(gym.Env):
             return -speeds[action - self.n_speeds] * self.screen_h
         return 0.0
 
-    def _advance_list(self, velocity: float, dt: float) -> None:
-        """Move and run the DDM of visible items in inner steps of dt_internal."""
+    def _advance_list(self, velocity: float, dt: float, t0: float) -> None:
+        """Move and run the DDM of visible items in inner steps of dt_internal
+        (plus off-screen residual processing when tau_residual > 0)."""
         ddm, scr = self.cfg.ddm, self.cfg.screen
         n_sub = max(int(round(dt / ddm.dt_internal)), 1)
         h = dt / n_sub
-        for _ in range(n_sub):
+        for k in range(n_sub):
             new_scroll = float(np.clip(self.scroll + velocity * h, 0.0, self.max_scroll))
             speed = abs(new_scroll - self.scroll) / h / self.screen_h  # actual, 0 when blocked
             self.scroll = new_scroll
             vis = visible_items(self.scroll, self.n_items, self.screen_h, scr.visible_fraction)
             self.exposure[vis] += h
+            gain = ddm.speed_gain(speed)
+            self._advance_residual(t0 + k * h, t0 + (k + 1) * h, exclude=vis)
+            self.last_visible[vis] = t0 + (k + 1) * h
+            self.gain_last[vis] = gain
             active = vis[~self.understood[vis]]
             if active.size == 0:
                 continue
-            drift = self.feed.nu[active] * ddm.speed_gain(speed)
+            drift = self.feed.nu[active] * gain
             self.x[active] = advance_evidence(self.x[active], drift, ddm.noise, h, self._rng_ddm)
             self.understood[active[self.x[active] >= ddm.threshold]] = True
+
+    def _advance_residual(self, t0: float, t1: float, exclude: np.ndarray) -> None:
+        """Off-screen residual processing over [t0, t1] for seen, not understood items."""
+        ddm = self.cfg.ddm
+        if ddm.tau_residual <= 0:
+            return
+        off = ~np.isnan(self.last_visible) & ~self.understood
+        off[exclude] = False
+        idx = np.flatnonzero(off)
+        if idx.size == 0:
+            return
+        eff = residual_weight(t0 - self.last_visible[idx], t1 - self.last_visible[idx], ddm.tau_residual)
+        drift = self.feed.nu[idx] * self.gain_last[idx]
+        self.x[idx] = self.x[idx] + drift * eff + ddm.noise * np.sqrt(eff) * self._rng_ddm.standard_normal(idx.size)
+        hit = idx[self.x[idx] >= ddm.threshold]
+        self.understood[hit] = True
+        in_window = np.isin(hit, visible_items(self.scroll, self.n_items, self.screen_h,
+                                               self.cfg.screen.visible_fraction))
+        self.understood_off_screen[hit[~in_window]] = True
+        self.understood_hidden[hit[in_window]] = True
 
     # --- masks and observation -------------------------------------------------
 
@@ -239,8 +282,19 @@ class ScrollingEnv(gym.Env):
         return np.where(self.understood, self.feed.A, 0.0), np.where(self.understood, self.feed.lam, 0.0)
 
     def extra_metrics(self) -> dict[str, float]:
-        """Episode counters of optional model extensions (empty in the MVP)."""
-        return {}
+        """Episode counters of optional model extensions.
+
+        n_off_screen_understood: items whose threshold was reached after scrolling away
+            from them (late realisation)
+        n_hidden_understood: items understood by residual processing while the list was
+            hidden by watching, at the current list position (needs residual_in_watch)
+        n_late_clicks: clicks on off-screen-understood items (the agent went back to them)
+        """
+        return {
+            "n_off_screen_understood": int(self.understood_off_screen.sum()),
+            "n_hidden_understood": int(self.understood_hidden.sum()),
+            "n_late_clicks": self._n_late_clicks,
+        }
 
     def _obs(self) -> np.ndarray:
         n, H, B = self.n_items, self.screen_h, self.cfg.ddm.threshold
