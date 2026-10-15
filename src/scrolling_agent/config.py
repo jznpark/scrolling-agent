@@ -83,3 +83,23 @@ class Config:
     screen: ScreenConfig = field(default_factory=ScreenConfig)
     ddm: DDMConfig = field(default_factory=DDMConfig)
     feed: FeedConfig = field(default_factory=FeedConfig)
+
+
+@dataclass
+class TrainConfig:
+    """MaskablePPO training (step 5). All values are [TBD] starting points."""
+
+    total_timesteps: int = 1_000_000
+    n_envs: int = 8
+    n_steps: int = 1024                 # rollout steps per env per update
+    batch_size: int = 512
+    n_epochs: int = 10
+    learning_rate: float = 3e-4
+    gamma: float = 0.999                # training discount; evaluation uses the undiscounted return
+    gae_lambda: float = 0.95
+    ent_coef: float = 0.01
+    target_kl: float = 0.02
+    net_arch: tuple[int, ...] = (256, 256)
+    eval_freq: int = 50_000             # total env steps between evaluations
+    n_eval_episodes: int = 10
+    eval_seed: int = 10_000             # evaluation lists / DDM seeds start here (never used in training)

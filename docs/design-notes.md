@@ -31,6 +31,9 @@ Source: professor's draft *Scrolling Agent — 초기 연구 설계* v0.1 (2026-
 | 2026-10-15 | Env episode end: `terminated=True` after N steps (remaining time is observed, so the end is part of the task, not a time limit) |
 | 2026-10-15 | Env observation: flat float32 vector in physical units (s, reward/s, 1/s), 655 values for 100 items; scaling / normalisation is left to the training stage |
 | 2026-10-15 | Seeds: `reset(seed)` spawns separate feed and DDM generators; `options={"feed": ...}` fixes the list while the DDM seed varies |
+| 2026-10-15 | Baselines: ScrollFirst (fixed speed down, click the first understood item with rate ≥ rho, back when rate < rho) and GreedyKnown (go to the best known item, also off screen; explore down when none reaches rho). rho tuned on seeds 20000+ |
+| 2026-10-15 | Reference return: all items known, no travel / transition time, watch the item with the largest step reward each step (optimal for decreasing rates) — an upper bound, not the draft's small-environment PPO comparison yet |
+| 2026-10-15 | PPO: MaskablePPO, 8 envs, MLP 256-256, VecNormalize (obs + reward), training gamma 0.999 (evaluation uses the undiscounted return, gamma = 1), target_kl 0.02. Seeds: training seed*1000 + env index, evaluation 10000+, rho tuning 20000+ |
 
 ## Open questions for the professor
 

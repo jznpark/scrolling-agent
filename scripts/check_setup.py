@@ -43,7 +43,7 @@ def main() -> None:
         total += reward
         if terminated or truncated:
             break
-    print(f"PPO smoke test finished — CartPole episode return: {total:.0f}")
+    print(f"PPO smoke test finished - CartPole episode return: {total:.0f}")
     print("Setup OK")
 
 

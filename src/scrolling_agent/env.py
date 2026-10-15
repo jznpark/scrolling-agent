@@ -230,6 +230,10 @@ class ScrollingEnv(gym.Env):
                 mask[self.slot_actions[j]] = self.understood[i]
         return mask
 
+    def observe(self) -> np.ndarray:
+        """Current observation (the same vector reset / step return)."""
+        return self._obs()
+
     def _obs(self) -> np.ndarray:
         n, H, B = self.n_items, self.screen_h, self.cfg.ddm.threshold
         A_known = np.where(self.understood, self.feed.A, 0.0)

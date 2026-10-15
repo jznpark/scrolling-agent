@@ -30,6 +30,9 @@ do not change agreed settings; proposals may change but record the change in `do
 - `src/scrolling_agent/config.py` — all parameters; mark values `[draft]` (from the draft) or `[TBD]` (team choice)
 - `src/scrolling_agent/feed.py` — stochastic feed generator (step 1)
 - `src/scrolling_agent/env.py` — Gymnasium environment (step 2)
+- `src/scrolling_agent/policies.py` — baselines, PPO wrapper, reference return (steps 4–5)
+- `src/scrolling_agent/evaluation.py`, `viz.py` — episode metrics / trace and plots
+- `scripts/train_ppo.py`, `evaluate.py`, `visualize.py` — training, comparison, watching one episode
 - `scripts/` — runnable entry points; `tests/` — pytest; `docs/` — design notes
 
 ## Commands (Windows PowerShell)
