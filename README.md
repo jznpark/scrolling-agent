@@ -91,6 +91,29 @@ python scripts\serve_branches.py --branches feature/value-error origin/feature/a
 - `H` 숨은 값(실제 A·ν·z) 표시, 오른쪽에 전체 목록 지도·상태·누적 보상·사건 기록(늦은 이해 등)
 - 주소로 조건 지정: `http://127.0.0.1:8000/?policy=greedy-dwell&dwell=0.5&set=ddm.attention=log&skip=300&autoplay=1`
 - `serve_branches.py`는 각 브랜치를 `.worktrees/`에 따로 꺼내 실행하므로 브랜치 자체는 바뀌지 않습니다
+- 설정마다 `?`에 마우스를 올리면 뜻이 나옵니다 (설명: `webdemo/descriptions.py`)
+
+#### 다른 PC에서 접속하기 (같은 네트워크)
+
+```powershell
+# 1) 서버를 외부 접속 허용으로 실행 — 콘솔에 "other PCs: http://192.168.x.x:8000" 주소가 나옵니다
+python scripts\serve_branches.py --host 0.0.0.0
+
+# 2) Windows 방화벽 열기 — "관리자 권한" PowerShell에서 한 번만
+New-NetFirewallRule -DisplayName "scrolling-agent demo" -Direction Inbound -Protocol TCP -LocalPort 8000-8004 -Action Allow -Profile Private,Domain
+
+# 네트워크 종류 확인 (Public이면 위 규칙이 적용되지 않음 → Private으로 바꾸거나 -Profile에 Public 추가)
+Get-NetConnectionProfile
+
+# 다 쓴 뒤 규칙 지우기
+Remove-NetFirewallRule -DisplayName "scrolling-agent demo"
+```
+
+- 다른 PC 브라우저에서 콘솔에 나온 주소(예: `http://192.168.0.23:8000`)로 접속합니다. IP는 `ipconfig`의 IPv4 주소입니다.
+- 처음 `--host 0.0.0.0`으로 실행할 때 Windows가 "Python 액세스 허용" 창을 띄우면 **개인 네트워크**만 체크하고 허용합니다.
+- 비교 페이지(8000)는 각 브랜치 화면(8001~8004)을 불러오므로 **포트 8000~8004를 모두** 열어야 합니다. `serve.py` 하나만 쓰면 8000만 열면 됩니다.
+- 학교 와이파이(eduroam 등)는 기기끼리 연결을 막는 경우가 많습니다. 안 되면 같은 공유기/연구실 LAN에서 쓰거나, VS Code 하단 **포트** 탭에서 포트를 전달(Forward)해 주소를 공유하세요.
+- 로그인이 없으므로 믿을 수 있는 네트워크에서만 여세요. 기본값(`--host` 없이 실행)은 이 PC에서만 접속됩니다.
 
 어떤 설정이든 `--set 섹션.필드=값`으로 바꿀 수 있습니다 (예: `--set ddm.noise=0.3 screen.speeds="(0.5, 1.5)"`).
 섹션: `time`, `screen`, `ddm`, `feed` (+ 확장 브랜치의 새 섹션).

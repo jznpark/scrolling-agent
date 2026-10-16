@@ -10,7 +10,8 @@ environment per browser session and answers small JSON requests:
 
 The model code is whatever `scrolling_agent` package is first on sys.path, so the
 same server can show any branch (scripts/serve.py --code <worktree>/src).
-Only the standard library is used; it listens on 127.0.0.1 only.
+Only the standard library is used. It listens on 127.0.0.1 unless a host such as
+0.0.0.0 is given (other PCs); there is no login, so open it only on trusted networks.
 """
 
 from __future__ import annotations
@@ -27,6 +28,8 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+
+from .descriptions import DESCRIPTIONS, UI_HELP
 
 STATIC = Path(__file__).parent / "static"
 CONTENT_TYPES = {".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml"}
@@ -85,6 +88,7 @@ def settings_schema() -> list[dict[str, Any]]:
                 "default": list(value) if isinstance(value, tuple) else value,
                 "choices": list(choices) if choices else None,
                 "comment": comment,
+                "help": DESCRIPTIONS.get(f"{section.name}.{f.name}", comment),
                 "tag": tag[1] if tag else (default_tag[1] if default_tag else ""),
             })
         sections.append({"name": section.name, "fields": items})
@@ -147,6 +151,9 @@ def make_policy(spec: dict[str, Any], runs_dir: Path | None):
             return policies.GreedyKnown(rho, dwell=dwell or 0.5)
         return policies.GreedyKnown(rho)
     if name.startswith("ppo:") and runs_dir:
+        # only runs that are listed (no paths from the browser: model files are pickles)
+        if name not in list_policies(runs_dir):
+            raise ValueError(f"unknown PPO run {name!r}")
         return policies.PPOPolicy.load(runs_dir / name[4:])
     raise ValueError(f"unknown policy {name!r}")
 
@@ -188,6 +195,7 @@ class Session:
         self.total = 0.0
         self.n_clicks = 0
         self.last_action: int | None = None
+        self.last_watched: int | None = None  # most recent item opened (shown in the rate curve)
         self.last_reward = 0.0
         self.events: deque[dict[str, Any]] = deque(maxlen=300)
         self.event_id = 0
@@ -222,6 +230,8 @@ class Session:
             if mode_before == WATCH and a == env.back_action:
                 self._event("back", f"back from #{current_before} after w = {env.w[current_before]:.1f}s")
             _, reward, *_ = env.step(a)
+            if env.current is not None:
+                self.last_watched = int(env.current)
             self.total += reward
             self.last_action, self.last_reward = a, float(reward)
             on_screen = set(visible_items(env.scroll, env.n_items, env.screen_h, env.cfg.screen.visible_fraction))
@@ -260,7 +270,10 @@ class Session:
             "dt": self.cfg.time.dt,
             "done": self.done,
             "mode": ["LIST", "WATCH", "TRANSITION"][env.mode],
+            "transition_to": ["LIST", "WATCH", "TRANSITION"][getattr(env, "_transition_to", 0)]
+            if env.mode == 2 else None,
             "current": env.current,
+            "last_watched": self.last_watched,
             "scroll": round(float(env.scroll), 4),
             "max_scroll": float(env.max_scroll),
             "screen_h": float(env.screen_h),
@@ -327,6 +340,7 @@ class DemoHandler(BaseHTTPRequestHandler):
                 "label": self.server.label,
                 "module": str(Path(config_module.__file__).resolve().parent),
                 "sections": settings_schema(),
+                "ui_help": UI_HELP,
                 "policies": list_policies(self.server.runs_dir),
             })
             return

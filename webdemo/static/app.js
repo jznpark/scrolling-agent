@@ -1,12 +1,14 @@
 "use strict";
 // Scrolling agent web demo: talks to webdemo/server.py and draws the environment.
+// Left half: the phone screen (what the agent sees). Right half: reward rates.
 
 const $ = (id) => document.getElementById(id);
 const SESSION = (crypto.randomUUID ? crypto.randomUUID() : String(Math.random())).slice(0, 36);
 const STORE_KEY = `scrolling-demo:${location.port}`;
 const COMPACT = new URLSearchParams(location.search).get("compact") === "1";
+const RHO_POLICIES = ["scrollfirst", "greedy", "greedy-dwell"];
 
-let schema = null;        // settings + policies from the server
+let schema = null;        // settings + policies + help texts from the server
 let state = null;         // last state from the server
 let history = [];         // [t, return, mode] per step since reset
 let events = [];
@@ -39,7 +41,44 @@ function toast(message) {
   toast.timer = setTimeout(() => (el.hidden = true), 4000);
 }
 
-// --- settings panel ----------------------------------------------------------------
+// --- "?" tooltips ------------------------------------------------------------------
+
+function helpText(el) {
+  if (el.dataset.tip) return { key: el.dataset.key || "", text: el.dataset.tip };
+  return { key: "", text: (schema && schema.ui_help[el.dataset.help]) || "" };
+}
+
+function showTip(el) {
+  const { key, text } = helpText(el);
+  if (!text) return;
+  const tip = $("tooltip");
+  tip.innerHTML = (key ? `<span class="key">${key}</span>` : "") + text;
+  tip.hidden = false;
+  const r = el.getBoundingClientRect();
+  const w = tip.offsetWidth, h = tip.offsetHeight;
+  let x = Math.min(r.left, window.innerWidth - w - 8);
+  let y = r.bottom + 6;
+  if (y + h > window.innerHeight - 8) y = r.top - h - 6;
+  tip.style.left = `${Math.max(8, x)}px`;
+  tip.style.top = `${Math.max(8, y)}px`;
+}
+
+document.addEventListener("mouseover", (e) => { const el = e.target.closest(".help"); if (el) showTip(el); });
+document.addEventListener("mouseout", (e) => { if (e.target.closest(".help")) $("tooltip").hidden = true; });
+document.addEventListener("focusin", (e) => { const el = e.target.closest(".help"); if (el) showTip(el); });
+document.addEventListener("focusout", (e) => { if (e.target.closest(".help")) $("tooltip").hidden = true; });
+
+function helpMark(tip, key) {
+  const el = document.createElement("span");
+  el.className = "help";
+  el.tabIndex = 0;
+  el.textContent = "?";
+  el.dataset.tip = tip;
+  if (key) el.dataset.key = key;
+  return el;
+}
+
+// --- settings drawer ---------------------------------------------------------------
 
 function fieldInput(field) {
   let input;
@@ -88,15 +127,15 @@ function buildSettings() {
   root.innerHTML = "";
   for (const section of schema.sections) {
     const det = document.createElement("details");
-    det.open = !COMPACT && (section.fields.some((f) => f.tag === "ext") || section.name === "feed");
+    const hasExt = section.fields.some((f) => f.tag === "ext");
+    det.open = hasExt || section.name === "feed";
     const sum = document.createElement("summary");
     sum.textContent = section.name;
-    if (section.fields.some((f) => f.tag === "ext")) sum.innerHTML += ' <span class="tag ext">ext</span>';
+    if (hasExt) sum.innerHTML += ' <span class="tag ext">ext</span>';
     det.appendChild(sum);
     for (const field of section.fields) {
       const row = document.createElement("div");
       row.className = "field";
-      row.title = `${field.key}\n${field.comment}`;
       const name = document.createElement("span");
       name.className = "name";
       name.textContent = field.name;
@@ -106,7 +145,8 @@ function buildSettings() {
         tag.textContent = field.tag;
         name.appendChild(tag);
       }
-      row.append(name, fieldInput(field));
+      const tip = field.help + (field.comment && field.help !== field.comment ? `<br><span class="small" style="opacity:.7">config.py: ${field.comment}</span>` : "");
+      row.append(name, helpMark(tip, field.key), fieldInput(field));
       det.appendChild(row);
     }
     root.appendChild(det);
@@ -123,10 +163,15 @@ function overrides() {
   const map = fieldsByKey();
   const out = {};
   for (const input of document.querySelectorAll("#settings [data-key]")) {
+    if (input.classList.contains("help")) continue;
     const field = map[input.dataset.key];
     if (isChanged(input, field)) out[field.key] = readInput(input, field);
   }
   return out;
+}
+
+function settingInput(key) {
+  return document.querySelector(`#settings input[data-key="${key}"], #settings select[data-key="${key}"]`);
 }
 
 function policySpec() {
@@ -151,7 +196,7 @@ function loadSetup() {
     if (!saved) return;
     const map = fieldsByKey();
     for (const [key, value] of Object.entries(saved.overrides || {})) {
-      const input = document.querySelector(`#settings [data-key="${key}"]`);
+      const input = settingInput(key);
       if (input && map[key]) { setInput(input, map[key], value); markChanged(input, map[key]); }
     }
     if (saved.policy) {
@@ -163,6 +208,10 @@ function loadSetup() {
     if (saved.speed) $("speed").value = saved.speed;
     $("hidden").checked = Boolean(saved.hidden);
   } catch (_) { /* ignore broken storage */ }
+}
+
+function openDrawer(open) {
+  $("drawer").hidden = !open;
 }
 
 // --- episode control -----------------------------------------------------------------
@@ -222,7 +271,7 @@ async function advance(n, action) {
 }
 
 function setPlaying(on) {
-  playing = on && state && !state.done;
+  playing = Boolean(on && state && !state.done);
   $("play").textContent = playing ? "⏸ 일시정지 (P)" : "▶ 재생 (P)";
   budget = 0;
 }
@@ -246,7 +295,7 @@ function loop(now) {
   requestAnimationFrame(loop);
 }
 
-// --- drawing -----------------------------------------------------------------------
+// --- drawing helpers -----------------------------------------------------------------
 
 function css(name) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -264,141 +313,154 @@ function fitCanvas(canvas) {
 }
 
 const fmt = (v, d = 2) => (typeof v === "number" ? v.toFixed(d) : v);
+const clock = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
+const usesRho = () => RHO_POLICIES.includes($("policy").value);
 
-function drawList() {
-  const { ctx, w, h } = fitCanvas($("list"));
-  ctx.clearRect(0, 0, w, h);
-  if (!state) return;
-  const H = state.screen_h;
-  const top = state.scroll - 1;
-  const px = h / (H + 2);
-  const showHidden = $("hidden").checked;
-  const slots = state.slots;
+function text(ctx, str, x, y, { size = 12, weight = 400, color = css("--text"), align = "left", italic = false } = {}) {
+  ctx.font = `${italic ? "italic " : ""}${weight} ${size}px system-ui, "Malgun Gothic", sans-serif`;
+  ctx.fillStyle = color;
+  ctx.textAlign = align;
   ctx.textBaseline = "middle";
-
-  const first = Math.max(0, Math.floor(top));
-  const last = Math.min(state.n_items - 1, Math.ceil(state.scroll + H + 1));
-  for (let i = first; i <= last; i++) {
-    const it = state.items[i];
-    const y = (i - top) * px;
-    const x0 = 12, cw = w - 24, ch = px - 8;
-    const current = state.current === i;
-    ctx.fillStyle = it.understood ? css("--card-known") : css("--card");
-    ctx.strokeStyle = current ? css("--current") : css("--border");
-    ctx.lineWidth = current ? 3 : 1;
-    ctx.beginPath();
-    ctx.roundRect(x0, y + 4, cw, ch, 8);
-    ctx.fill();
-    ctx.stroke();
-
-    const slot = slots.indexOf(i);
-    ctx.fillStyle = css("--text");
-    ctx.font = "600 15px system-ui, sans-serif";
-    ctx.fillText(`#${i}`, x0 + 12, y + 4 + ch * 0.22);
-    if (slot >= 0) {
-      ctx.font = "12px system-ui, sans-serif";
-      ctx.fillStyle = state.mask[state.actions.slots[slot]] ? css("--known") : css("--muted");
-      ctx.fillText(`[${slot + 1}] ${state.mask[state.actions.slots[slot]] ? "클릭 가능" : "보임"}`, x0 + 62, y + 4 + ch * 0.22);
-    }
-
-    ctx.font = "13px system-ui, sans-serif";
-    if (it.understood) {
-      ctx.fillStyle = css("--text");
-      ctx.fillText(`A ${fmt(it.A)}   λ ${fmt(it.lam)}   w ${fmt(it.w, 1)}s   rate ${fmt(it.rate)}`, x0 + 12, y + 4 + ch * 0.48);
-      const barW = (cw - 24) * Math.min(1, it.rate / 3);
-      ctx.fillStyle = css("--known");
-      ctx.fillRect(x0 + 12, y + 4 + ch * 0.7, barW, Math.max(4, ch * 0.1));
-      if (showHidden && (Math.abs(it.A - it.hidden.A) > 1e-6 || Math.abs(it.lam - it.hidden.lam) > 1e-6)) {
-        ctx.fillStyle = css("--current");
-        ctx.font = "italic 12px system-ui, sans-serif";
-        ctx.fillText(`실제: A ${fmt(it.hidden.A)}  λ ${fmt(it.hidden.lam)}  rate ${fmt(it.hidden.rate)}`, x0 + 12, y + 4 + ch * 0.88);
-      }
-    } else {
-      ctx.fillStyle = css("--muted");
-      ctx.fillText(it.seen ? `증거 ${fmt(it.x)}   노출 ${fmt(it.exposure, 1)}s` : "아직 안 봄", x0 + 12, y + 4 + ch * 0.48);
-      ctx.fillStyle = css("--unseen");
-      ctx.fillRect(x0 + 12, y + 4 + ch * 0.7, cw - 24, Math.max(4, ch * 0.1));
-      ctx.fillStyle = css("--evidence");
-      ctx.fillRect(x0 + 12, y + 4 + ch * 0.7, (cw - 24) * Math.max(0, Math.min(1, it.x)), Math.max(4, ch * 0.1));
-      if (showHidden) {
-        ctx.fillStyle = it.hidden.z ? css("--z1") : css("--hidden");
-        ctx.font = "italic 12px system-ui, sans-serif";
-        ctx.fillText(`숨은 값: A ${fmt(it.hidden.A)}  ν ${fmt(it.hidden.nu)}  z ${it.hidden.z}`, x0 + 12, y + 4 + ch * 0.88);
-      }
-    }
-  }
-
-  // the screen window
-  ctx.setLineDash([8, 6]);
-  ctx.strokeStyle = css("--screen");
-  ctx.lineWidth = 2;
-  ctx.strokeRect(4, px, w - 8, H * px);
-  ctx.setLineDash([]);
-
-  if (state.mode === "WATCH" && state.current !== null) drawWatchOverlay(ctx, w, h);
-  if (state.mode === "TRANSITION") banner(ctx, w, h, "화면 전환 중 (클릭 / back, 0.2초)");
-  if (state.done) banner(ctx, w, h, `세션 종료 · 누적 보상 ${fmt(state.return)} · R로 다시 시작`);
-}
-
-function banner(ctx, w, h, text) {
-  ctx.fillStyle = "rgba(0,0,0,0.65)";
-  ctx.fillRect(0, h / 2 - 22, w, 44);
-  ctx.fillStyle = "#fff";
-  ctx.font = "600 15px system-ui, sans-serif";
-  ctx.textAlign = "center";
-  ctx.fillText(text, w / 2, h / 2);
+  ctx.fillText(str, x, y);
   ctx.textAlign = "left";
 }
 
-function drawWatchOverlay(ctx, w, h) {
-  const it = state.items[state.current];
-  const showHidden = $("hidden").checked;
-  const x0 = 30, y0 = h * 0.18, bw = w - 60, bh = h * 0.64;
-  ctx.fillStyle = css("--panel");
-  ctx.globalAlpha = 0.96;
-  ctx.fillRect(x0, y0, bw, bh);
-  ctx.globalAlpha = 1;
-  ctx.strokeStyle = css("--current");
-  ctx.lineWidth = 3;
-  ctx.strokeRect(x0, y0, bw, bh);
+// --- left half: the phone screen -------------------------------------------------------
 
-  ctx.fillStyle = css("--text");
-  ctx.font = "600 18px system-ui, sans-serif";
-  ctx.fillText(`시청 중 #${it.id}`, x0 + 16, y0 + 26);
-  ctx.font = "13px system-ui, sans-serif";
-  const gained = it.A / Math.max(it.lam, 1e-9) * (1 - Math.exp(-it.lam * it.w));
-  ctx.fillText(`w ${fmt(it.w, 1)}s   지금 보상률 ${fmt(it.rate)}   (인지한 값 기준 누적 ${fmt(gained)})`, x0 + 16, y0 + 50);
-  if (showHidden) {
-    ctx.fillStyle = css("--current");
-    ctx.fillText(`실제 보상률 ${fmt(it.hidden.rate)}`, x0 + 16, y0 + 70);
+function drawPhone() {
+  const { ctx, w, h } = fitCanvas($("phone"));
+  ctx.clearRect(0, 0, w, h);
+  if (!state) return;
+  const statusH = 30, homeH = 18;
+  const feedTop = statusH, feedH = h - statusH - homeH;
+
+  // status bar
+  text(ctx, clock(state.t), 18, statusH / 2 + 2, { size: 13, weight: 600 });
+  text(ctx, `${fmt(state.t, 1)} / ${state.T}s`, w - 16, statusH / 2 + 2, { size: 11, color: css("--muted"), align: "right" });
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, feedTop, w, feedH);
+  ctx.clip();
+  const watchingView = state.mode === "WATCH" || (state.mode === "TRANSITION" && state.transition_to === "LIST");
+  if (watchingView) drawPlayer(ctx, w, feedTop, feedH);
+  else drawFeed(ctx, w, feedTop, feedH);
+  if (state.mode === "TRANSITION") {
+    ctx.fillStyle = "rgba(0,0,0,0.45)";
+    ctx.fillRect(0, feedTop, w, feedH);
+    text(ctx, state.transition_to === "WATCH" ? `#${state.current} 여는 중…` : "목록으로 돌아가는 중…",
+      w / 2, feedTop + feedH / 2, { size: 15, weight: 600, color: "#fff", align: "center" });
   }
+  if (state.done) {
+    ctx.fillStyle = "rgba(0,0,0,0.65)";
+    ctx.fillRect(0, feedTop, w, feedH);
+    text(ctx, "세션 종료", w / 2, feedTop + feedH / 2 - 12, { size: 17, weight: 700, color: "#fff", align: "center" });
+    text(ctx, `누적 보상 ${fmt(state.return)} · R로 다시 시작`, w / 2, feedTop + feedH / 2 + 14,
+      { size: 12, color: "#fff", align: "center" });
+  }
+  ctx.restore();
 
-  // rate curve A e^{-λ t}
-  const px0 = x0 + 50, py0 = y0 + bh - 34, pw = bw - 80, ph = bh - 130;
-  const tMax = Math.max(10, it.w + 5);
-  const rMax = Math.max(it.A, showHidden ? it.hidden.A : 0, 0.1) * 1.1;
-  const X = (t) => px0 + (t / tMax) * pw;
-  const Y = (r) => py0 - (r / rMax) * ph;
-  ctx.strokeStyle = css("--border");
-  ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(px0, py0 - ph); ctx.lineTo(px0, py0); ctx.lineTo(px0 + pw, py0); ctx.stroke();
-  const curve = (A, lam, color, dash) => {
-    ctx.setLineDash(dash); ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.beginPath();
-    for (let k = 0; k <= 100; k++) { const t = (k / 100) * tMax; const r = A * Math.exp(-lam * t); k ? ctx.lineTo(X(t), Y(r)) : ctx.moveTo(X(t), Y(r)); }
-    ctx.stroke(); ctx.setLineDash([]);
-  };
-  curve(it.A, it.lam, css("--known"), []);
-  if (showHidden) curve(it.hidden.A, it.hidden.lam, css("--current"), [5, 4]);
-  // watched part
-  ctx.fillStyle = css("--watch");
-  ctx.globalAlpha = 0.25;
-  ctx.fillRect(px0, py0 - ph, X(it.w) - px0, ph);
-  ctx.globalAlpha = 1;
-  ctx.beginPath(); ctx.arc(X(it.w), Y(it.rate), 5, 0, Math.PI * 2); ctx.fillStyle = css("--current"); ctx.fill();
+  // home indicator
   ctx.fillStyle = css("--muted");
-  ctx.font = "11px system-ui, sans-serif";
-  ctx.fillText("보상률 A·e^(−λw)", px0 + 4, py0 - ph - 8);
-  ctx.fillText(`w (0 ~ ${tMax.toFixed(0)}s)`, px0 + pw - 70, py0 + 16);
+  ctx.globalAlpha = 0.5;
+  ctx.beginPath();
+  ctx.roundRect(w / 2 - 50, h - homeH / 2 - 2, 100, 4, 2);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+
+  const pill = $("phone-mode");
+  pill.textContent = state.mode === "WATCH" ? `시청 중 #${state.current}` : state.mode === "TRANSITION" ? "화면 전환" : "목록";
+  pill.className = `pill ${state.mode}`;
+}
+
+function drawFeed(ctx, w, top, height) {
+  const H = state.screen_h;
+  const pitch = height / H;
+  const showHidden = $("hidden").checked;
+  const first = Math.max(0, Math.floor(state.scroll));
+  const last = Math.min(state.n_items - 1, Math.ceil(state.scroll + H));
+  for (let i = first; i <= last; i++) {
+    const it = state.items[i];
+    const y = top + (i - state.scroll) * pitch;
+    const slot = state.slots.indexOf(i);
+    const x0 = 10, cw = w - 20, ch = pitch - 10, cy = y + 5;
+    ctx.globalAlpha = slot >= 0 ? 1 : 0.45;   // less than half on screen: not being processed
+    ctx.fillStyle = it.understood ? css("--card-known") : css("--card");
+    ctx.strokeStyle = css("--border");
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(x0, cy, cw, ch, 12);
+    ctx.fill();
+    ctx.stroke();
+
+    // thumbnail placeholder
+    const tx = x0 + 10, ty = cy + 10, tw = cw - 20, th = ch * 0.48;
+    ctx.fillStyle = css("--unseen");
+    ctx.beginPath();
+    ctx.roundRect(tx, ty, tw, th, 8);
+    ctx.fill();
+    text(ctx, `#${i}`, tx + tw / 2, ty + th / 2, { size: Math.min(22, th * 0.35), weight: 700, color: css("--muted"), align: "center" });
+    if (slot >= 0) {
+      const canClick = state.mask[state.actions.slots[slot]];
+      ctx.fillStyle = canClick ? css("--known") : css("--muted");
+      ctx.beginPath();
+      ctx.arc(tx + 16, ty + 16, 11, 0, Math.PI * 2);
+      ctx.fill();
+      text(ctx, String(slot + 1), tx + 16, ty + 16.5, { size: 12, weight: 700, color: "#fff", align: "center" });
+    }
+
+    // understanding progress (evidence) under the thumbnail
+    const by = ty + th + 8, bh = 5;
+    ctx.fillStyle = css("--unseen");
+    ctx.fillRect(tx, by, tw, bh);
+    ctx.fillStyle = it.understood ? css("--known") : css("--evidence");
+    ctx.fillRect(tx, by, tw * Math.max(0, Math.min(1, it.understood ? 1 : it.x)), bh);
+
+    const ly = by + bh + Math.max(12, (cy + ch - by - bh) * 0.32);
+    if (it.understood) {
+      text(ctx, "이해함", tx, ly, { size: 12, weight: 700, color: css("--known") });
+      text(ctx, `A ${fmt(it.A)} · λ ${fmt(it.lam)}` + (it.w > 0 ? ` · 본 시간 ${fmt(it.w, 1)}s` : ""), tx + 48, ly, { size: 12 });
+    } else {
+      text(ctx, it.seen ? `파악 중 ${Math.round(Math.max(0, it.x) * 100)}% · ${fmt(it.exposure, 1)}s` : "아직 안 봄", tx, ly,
+        { size: 12, color: css("--muted") });
+    }
+    if (showHidden) {
+      const differs = it.understood && (Math.abs(it.A - it.hidden.A) > 1e-6 || Math.abs(it.lam - it.hidden.lam) > 1e-6);
+      const hidden = it.understood
+        ? (differs ? `실제 A ${fmt(it.hidden.A)} · λ ${fmt(it.hidden.lam)}` : "")
+        : `숨은 값 A ${fmt(it.hidden.A)} · ν ${fmt(it.hidden.nu)} · z ${it.hidden.z}`;
+      if (hidden) text(ctx, hidden, tx, ly + 17, { size: 11, italic: true,
+        color: differs ? css("--current") : it.hidden.z ? css("--z1") : css("--hidden") });
+    }
+    ctx.globalAlpha = 1;
+  }
+}
+
+function drawPlayer(ctx, w, top, height) {
+  const it = state.items[state.current];
+  ctx.fillStyle = "#0b0c0f";
+  ctx.fillRect(0, top, w, height);
+  const cx = w / 2, cy = top + height * 0.42;
+  ctx.fillStyle = "rgba(255,255,255,0.12)";
+  ctx.beginPath();
+  ctx.arc(cx, cy, 42, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#fff";
+  ctx.beginPath();
+  ctx.moveTo(cx - 13, cy - 20);
+  ctx.lineTo(cx + 22, cy);
+  ctx.lineTo(cx - 13, cy + 20);
+  ctx.closePath();
+  ctx.fill();
+  text(ctx, `#${it.id}`, cx, cy + 72, { size: 20, weight: 700, color: "#fff", align: "center" });
+  text(ctx, `본 시간 ${fmt(it.w, 1)}초`, cx, cy + 100, { size: 13, color: "#c9cdd4", align: "center" });
+  // progress line at the bottom of the video
+  const px = 16, py = top + height - 40, pw = w - 32;
+  ctx.fillStyle = "rgba(255,255,255,0.25)";
+  ctx.fillRect(px, py, pw, 4);
+  ctx.fillStyle = css("--current");
+  ctx.fillRect(px, py, pw * Math.min(1, it.w / Math.max(10, it.w + 4)), 4);
+  text(ctx, "B = 목록으로", cx, py + 20, { size: 11, color: "#9aa1ab", align: "center" });
 }
 
 function drawMinimap() {
@@ -410,34 +472,172 @@ function drawMinimap() {
   const showHidden = $("hidden").checked;
   const maxRate = Math.max(0.5, ...state.items.map((it) => it.rate));
   for (const it of state.items) {
-    const y = it.id * rh;
+    const y = it.id * rh, hh = Math.max(1, rh - 0.5);
     ctx.fillStyle = css("--unseen");
-    ctx.fillRect(0, y, w, Math.max(1, rh - 0.5));
+    ctx.fillRect(0, y, w, hh);
     if (it.understood) {
       ctx.fillStyle = css("--known");
       ctx.globalAlpha = 0.25 + 0.75 * Math.max(0, it.rate) / maxRate;
-      ctx.fillRect(0, y, w, Math.max(1, rh - 0.5));
+      ctx.fillRect(0, y, w, hh);
       ctx.globalAlpha = 1;
     } else if (it.seen) {
       ctx.fillStyle = css("--evidence");
-      ctx.fillRect(0, y, w * Math.max(0.05, Math.min(1, it.x)), Math.max(1, rh - 0.5));
+      ctx.fillRect(0, y, w * Math.max(0.05, Math.min(1, it.x)), hh);
     }
     if (it.w > 0) {
       ctx.fillStyle = css("--watch");
-      ctx.fillRect(0, y, Math.min(w * 0.5, 4 + it.w * 3), Math.max(1, rh - 0.5));
+      ctx.fillRect(0, y, Math.min(w * 0.5, 4 + it.w * 3), hh);
     }
     if (showHidden && it.hidden.z) {
       ctx.fillStyle = css("--z1");
-      ctx.fillRect(w - 6, y, 6, Math.max(1, rh - 0.5));
+      ctx.fillRect(w - 6, y, 6, hh);
     }
   }
-  ctx.strokeStyle = css("--screen");
+  ctx.strokeStyle = css("--text");
   ctx.lineWidth = 2;
   ctx.strokeRect(1, state.scroll * rh, w - 2, state.screen_h * rh);
   if (state.current !== null) {
     ctx.fillStyle = css("--current");
     ctx.fillRect(0, state.current * rh - 1, w, Math.max(2, rh + 1));
   }
+}
+
+// --- right half: reward rates -----------------------------------------------------------
+
+function axes(ctx, x0, y0, pw, ph) {
+  ctx.strokeStyle = css("--border");
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(x0, y0 - ph);
+  ctx.lineTo(x0, y0);
+  ctx.lineTo(x0 + pw, y0);
+  ctx.stroke();
+}
+
+function rhoLine(ctx, x0, pw, Y) {
+  if (!usesRho()) return;
+  const rho = parseFloat($("rho").value);
+  ctx.setLineDash([5, 4]);
+  ctx.strokeStyle = css("--muted");
+  ctx.beginPath();
+  ctx.moveTo(x0, Y(rho));
+  ctx.lineTo(x0 + pw, Y(rho));
+  ctx.stroke();
+  ctx.setLineDash([]);
+  text(ctx, `ρ ${fmt(rho)}`, x0 + pw - 2, Y(rho) - 8, { size: 11, color: css("--muted"), align: "right" });
+}
+
+function drawCurve() {
+  const { ctx, w, h } = fitCanvas($("curve"));
+  ctx.clearRect(0, 0, w, h);
+  if (!state) return;
+  const id = state.current !== null ? state.current : state.last_watched;
+  const title = $("curve-title");
+  if (id === null) {
+    title.textContent = "시청 중인 콘텐츠의 보상률";
+    text(ctx, "아직 시청한 콘텐츠가 없습니다.", w / 2, h / 2 - 10, { size: 13, color: css("--muted"), align: "center" });
+    text(ctx, "이해한 후보를 클릭하면 보상률 곡선 A·e^(−λw)가 여기에 나타납니다.", w / 2, h / 2 + 12,
+      { size: 12, color: css("--muted"), align: "center" });
+    return;
+  }
+  const it = state.items[id];
+  const watching = state.current !== null;
+  title.textContent = watching ? `#${id} 보상률 (시청 중)` : `#${id} 보상률 (마지막으로 본 콘텐츠)`;
+  const showHidden = $("hidden").checked;
+  const x0 = 44, y0 = h - 26, pw = w - x0 - 14, ph = h - 46;
+  const tMax = Math.max(10, it.w * 1.5 + 2);
+  const rho = usesRho() ? parseFloat($("rho").value) : 0;
+  const rMax = Math.max(it.A, showHidden ? it.hidden.A : 0, rho, 0.1) * 1.15;
+  const X = (t) => x0 + (t / tMax) * pw;
+  const Y = (r) => y0 - (r / rMax) * ph;
+  axes(ctx, x0, y0, pw, ph);
+
+  // watched part: area under the curve = reward collected
+  ctx.fillStyle = css("--watch");
+  ctx.globalAlpha = 0.3;
+  ctx.beginPath();
+  ctx.moveTo(X(0), Y(0));
+  for (let k = 0; k <= 60; k++) { const t = (k / 60) * it.w; ctx.lineTo(X(t), Y(it.A * Math.exp(-it.lam * t))); }
+  ctx.lineTo(X(it.w), Y(0));
+  ctx.closePath();
+  ctx.fill();
+  ctx.globalAlpha = 1;
+
+  const curve = (A, lam, color, dash) => {
+    ctx.setLineDash(dash);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (let k = 0; k <= 120; k++) { const t = (k / 120) * tMax; const r = A * Math.exp(-lam * t); k ? ctx.lineTo(X(t), Y(r)) : ctx.moveTo(X(t), Y(r)); }
+    ctx.stroke();
+    ctx.setLineDash([]);
+  };
+  curve(it.A, it.lam, css("--known"), []);
+  if (showHidden) curve(it.hidden.A, it.hidden.lam, css("--current"), [5, 4]);
+  rhoLine(ctx, x0, pw, Y);
+
+  ctx.fillStyle = css("--current");
+  ctx.beginPath();
+  ctx.arc(X(it.w), Y(it.rate), 5, 0, Math.PI * 2);
+  ctx.fill();
+
+  const gained = it.A / Math.max(it.lam, 1e-9) * (1 - Math.exp(-it.lam * it.w));
+  text(ctx, `지금 보상률 ${fmt(it.rate)}`, x0 + pw, 12, { size: 12, weight: 600, align: "right" });
+  text(ctx, `본 시간 ${fmt(it.w, 1)}s · 얻은 보상 ${fmt(gained)}` + (showHidden ? ` · 실제 보상률 ${fmt(it.hidden.rate)}` : ""),
+    x0 + pw, 28, { size: 11, color: css("--muted"), align: "right" });
+  text(ctx, fmt(rMax, 1), x0 - 6, Y(rMax), { size: 10, color: css("--muted"), align: "right" });
+  text(ctx, "0", x0 - 6, y0, { size: 10, color: css("--muted"), align: "right" });
+  text(ctx, `시청 시간 w (0 ~ ${tMax.toFixed(0)}s)`, x0 + pw, y0 + 14, { size: 10, color: css("--muted"), align: "right" });
+}
+
+function drawRates() {
+  const { ctx, w, h } = fitCanvas($("rates"));
+  ctx.clearRect(0, 0, w, h);
+  if (!state) return;
+  const showHidden = $("hidden").checked;
+  const known = state.items.filter((it) => it.understood);
+  const seenMax = Math.max(...state.items.filter((it) => it.seen).map((it) => it.id), 0);
+  const hiIdx = Math.min(state.n_items, Math.max(seenMax + 4, Math.ceil(state.scroll + state.screen_h) + 3, 12));
+  const rho = usesRho() ? parseFloat($("rho").value) : 0;
+  const rMax = Math.max(0.5, rho, ...known.map((it) => it.rate), ...(showHidden ? known.map((it) => it.hidden.rate) : [])) * 1.15;
+  const x0 = 44, y0 = h - 22, pw = w - x0 - 10, ph = h - 34;
+  const X = (i) => x0 + (i / hiIdx) * pw;
+  const Y = (r) => y0 - (Math.max(0, r) / rMax) * ph;
+  const bw = Math.max(2, pw / hiIdx - 2);
+
+  // the screen window
+  ctx.fillStyle = css("--evidence");
+  ctx.globalAlpha = 0.12;
+  ctx.fillRect(X(state.scroll), y0 - ph, X(state.scroll + state.screen_h) - X(state.scroll), ph);
+  ctx.globalAlpha = 1;
+  axes(ctx, x0, y0, pw, ph);
+
+  for (const it of known) {
+    const x = X(it.id) + 1;
+    const current = state.current === it.id;
+    ctx.fillStyle = current ? css("--current") : css("--known");
+    ctx.fillRect(x, Y(it.rate), bw, y0 - Y(it.rate));
+    if (state.slots.includes(it.id)) {
+      ctx.strokeStyle = css("--evidence");
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x, Y(it.rate), bw, y0 - Y(it.rate));
+    }
+    if (it.w > 0) {
+      ctx.fillStyle = css("--watch");
+      ctx.fillRect(x, Y(it.rate) - 3, bw, 3);
+    }
+    if (showHidden) {
+      ctx.fillStyle = css("--current");
+      ctx.beginPath();
+      ctx.arc(x + bw / 2, Y(it.hidden.rate), 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  rhoLine(ctx, x0, pw, Y);
+  if (!known.length) text(ctx, "아직 이해한 후보가 없습니다", x0 + pw / 2, y0 - ph / 2, { size: 12, color: css("--muted"), align: "center" });
+  text(ctx, fmt(rMax, 1), x0 - 6, Y(rMax), { size: 10, color: css("--muted"), align: "right" });
+  text(ctx, "0", x0 - 6, y0, { size: 10, color: css("--muted"), align: "right" });
+  text(ctx, `목록 위치 0 ~ ${hiIdx} (파랑 배경 = 화면)`, x0 + pw, y0 + 13, { size: 10, color: css("--muted"), align: "right" });
 }
 
 function drawChart() {
@@ -447,32 +647,29 @@ function drawChart() {
   const T = state.T;
   const values = history.map((p) => p[1]);
   const lo = Math.min(0, ...values), hi = Math.max(1, ...values);
-  const pad = 28;
-  const X = (t) => pad + (t / T) * (w - pad - 6);
-  const Y = (v) => h - 16 - ((v - lo) / (hi - lo)) * (h - 26);
-  // watch periods
+  const x0 = 44, y0 = h - 18, pw = w - x0 - 10, ph = h - 28;
+  const X = (t) => x0 + (t / T) * pw;
+  const Y = (v) => y0 - ((v - lo) / (hi - lo)) * ph;
   ctx.fillStyle = css("--known");
   ctx.globalAlpha = 0.15;
-  for (const [t, , mode] of history) if (mode === 1) ctx.fillRect(X(t - state.dt), 4, X(t) - X(t - state.dt) + 0.5, h - 20);
+  for (const [t, , mode] of history) if (mode === 1) ctx.fillRect(X(t - state.dt), y0 - ph, X(t) - X(t - state.dt) + 0.5, ph);
   ctx.globalAlpha = 1;
+  axes(ctx, x0, y0, pw, ph);
   ctx.strokeStyle = css("--border");
-  ctx.beginPath(); ctx.moveTo(pad, Y(0)); ctx.lineTo(w - 6, Y(0)); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x0, Y(0)); ctx.lineTo(x0 + pw, Y(0)); ctx.stroke();
   ctx.strokeStyle = css("--text");
   ctx.lineWidth = 1.5;
   ctx.beginPath();
   history.forEach(([t, v], k) => (k ? ctx.lineTo(X(t), Y(v)) : ctx.moveTo(X(t), Y(v))));
   ctx.stroke();
-  ctx.fillStyle = css("--muted");
-  ctx.font = "11px system-ui, sans-serif";
-  ctx.fillText(fmt(hi, 1), 2, Y(hi) + 4);
-  ctx.fillText(fmt(lo, 1), 2, Y(lo));
-  ctx.fillText(`0 ~ ${T}s (초록 = 시청)`, pad, h - 3);
+  text(ctx, fmt(hi, 1), x0 - 6, Y(hi), { size: 10, color: css("--muted"), align: "right" });
+  text(ctx, fmt(lo, 1), x0 - 6, Y(lo), { size: 10, color: css("--muted"), align: "right" });
+  text(ctx, `시간 0 ~ ${T}s`, x0 + pw, y0 + 11, { size: 10, color: css("--muted"), align: "right" });
 }
 
 function renderStats() {
   const s = state;
   const rows = [
-    ["시간", `${fmt(s.t, 1)} / ${s.T}s`],
     ["모드", s.mode + (s.current !== null ? ` #${s.current}` : "")],
     ["누적 보상", fmt(s.return)],
     ["시청 보상", fmt(s.watch_reward)],
@@ -505,17 +702,18 @@ function renderEvents() {
 }
 
 function renderKeys() {
-  const human = isHuman();
-  $("keys").innerHTML = human
-    ? "직접 플레이: <kbd>↓</kbd>/<kbd>↑</kbd> 누르고 있으면 이동 (<kbd>Shift</kbd> = 빠르게) · <kbd>1</kbd>~<kbd>4</kbd> 보이는 칸 클릭 · <kbd>B</kbd> back · <kbd>Space</kbd> 멈춤 · 일시정지 중에는 키 한 번 = 한 스텝"
-    : "<kbd>P</kbd> 재생/일시정지 · <kbd>N</kbd> 한 스텝 · <kbd>R</kbd> 다시 시작 · <kbd>H</kbd> 숨은 값 · 속도 10 = 실제 시간 (스텝 0.1초)";
-  $("dwell").closest("label").style.opacity = $("policy").value === "greedy-dwell" ? 1 : 0.4;
+  $("keys").innerHTML = isHuman()
+    ? "직접 플레이: <kbd>↓</kbd>/<kbd>↑</kbd> 누르고 있으면 스크롤 (<kbd>Shift</kbd> 빠르게) · <kbd>1</kbd>~<kbd>4</kbd> 번호 붙은 카드 열기 · <kbd>B</kbd> 목록으로 · <kbd>Space</kbd> 멈춤<br>일시정지 중에는 키 한 번 = 한 스텝"
+    : "<kbd>P</kbd> 재생/일시정지 · <kbd>N</kbd> 한 스텝 · <kbd>R</kbd> 다시 시작 · <kbd>H</kbd> 숨은 값 · 흐린 카드 = 절반 미만으로 보여 아직 파악 안 됨";
+  $("dwell-wrap").style.opacity = $("policy").value === "greedy-dwell" ? 1 : 0.4;
 }
 
 function render() {
   if (!state) return;
-  drawList();
+  drawPhone();
   drawMinimap();
+  drawCurve();
+  drawRates();
   drawChart();
   renderStats();
   renderEvents();
@@ -529,6 +727,7 @@ function typing(e) {
 }
 
 document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") { openDrawer(false); return; }
   if (typing(e) || !state) return;
   const key = e.key;
   if (key === "Shift") { held.add("Shift"); return; }
@@ -565,13 +764,17 @@ window.addEventListener("resize", render);
 $("play").addEventListener("click", () => setPlaying(!playing));
 $("step").addEventListener("click", () => advance(1, isHuman() ? humanAction() : undefined));
 $("reset").addEventListener("click", reset);
+$("apply").addEventListener("click", () => { openDrawer(false); reset(); });
+$("open-settings").addEventListener("click", () => openDrawer($("drawer").hidden));
+$("close-settings").addEventListener("click", () => openDrawer(false));
 $("seed-random").addEventListener("click", () => { $("seed").value = Math.floor(Math.random() * 100000); reset(); });
 $("hidden").addEventListener("change", () => { saveSetup(); render(); });
-$("speed").addEventListener("input", () => { $("speed-label").textContent = `${$("speed").value} 스텝/초`; saveSetup(); });
-$("policy").addEventListener("change", () => { renderKeys(); });
+$("rho").addEventListener("input", render);
+$("speed").addEventListener("input", () => { $("speed-label").textContent = `${$("speed").value}/초`; saveSetup(); });
+$("policy").addEventListener("change", renderKeys);
 $("defaults").addEventListener("click", () => {
   const map = fieldsByKey();
-  for (const input of document.querySelectorAll("#settings [data-key]")) {
+  for (const input of document.querySelectorAll("#settings input[data-key], #settings select[data-key]")) {
     setInput(input, map[input.dataset.key], map[input.dataset.key].default);
     markChanged(input, map[input.dataset.key]);
   }
@@ -588,7 +791,7 @@ function applyUrlParams() {
   const map = fieldsByKey();
   for (const item of q.getAll("set")) {
     const [key, ...rest] = item.split("=");
-    const input = document.querySelector(`#settings [data-key="${key}"]`);
+    const input = settingInput(key);
     if (!input || !map[key]) { toast(`알 수 없는 설정: ${key}`); continue; }
     const raw = rest.join("=");
     const field = map[key];
@@ -608,7 +811,7 @@ window.addEventListener("message", async (e) => {
   if (!m || m.type !== "demo" || !schema) return;
   if (m.seed !== undefined) $("seed").value = m.seed;
   if (m.policy && [...$("policy").options].some((o) => o.value === m.policy)) $("policy").value = m.policy;
-  if (m.speed !== undefined) { $("speed").value = m.speed; $("speed-label").textContent = `${m.speed} 스텝/초`; }
+  if (m.speed !== undefined) { $("speed").value = m.speed; $("speed-label").textContent = `${m.speed}/초`; }
   if (m.hidden !== undefined) $("hidden").checked = m.hidden;
   if (m.cmd === "reset") await reset();
   else if (m.cmd === "play") setPlaying(true);
@@ -632,10 +835,11 @@ window.addEventListener("message", async (e) => {
   document.title = `Scrolling Agent · ${schema.label || "demo"}`;
   for (const p of schema.policies) $("policy").add(new Option(p, p));
   $("policy").value = "greedy";
+  for (const el of document.querySelectorAll(".help[data-help]")) el.tabIndex = 0;
   buildSettings();
   loadSetup();
   const start = applyUrlParams();
-  $("speed-label").textContent = `${$("speed").value} 스텝/초`;
+  $("speed-label").textContent = `${$("speed").value}/초`;
   await reset();
   if (start.skip > 0 && !isHuman()) await advance(start.skip);
   if (start.autoplay) setPlaying(true);

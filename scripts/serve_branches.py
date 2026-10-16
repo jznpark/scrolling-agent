@@ -3,6 +3,7 @@
 Run (PowerShell, venv active, from this checkout):
     python scripts\\serve_branches.py --open
     python scripts\\serve_branches.py --branches feature/value-error feature/attention-split
+    python scripts\\serve_branches.py --host 0.0.0.0     # also other PCs (open ports 8000-8004 in the firewall)
 
 Each branch is checked out (detached) into .worktrees/<branch> and served from its
 own port (base port + 1, + 2, ...); the base port shows all of them in one page.
@@ -51,8 +52,8 @@ def checkout(branch: str) -> Path:
 
 def hub_page(servers: list[tuple[str, int]]) -> bytes:
     frames = "\n".join(
-        f'<section><h2>{html.escape(name)} <a href="http://127.0.0.1:{port}" target="_blank">:{port} ↗</a></h2>'
-        f'<iframe src="http://127.0.0.1:{port}/?compact=1" title="{html.escape(name)}"></iframe></section>'
+        f'<section><h2>{html.escape(name)} <a data-port="{port}" target="_blank">:{port} ↗</a></h2>'
+        f'<iframe data-port="{port}" title="{html.escape(name)}"></iframe></section>'
         for name, port in servers
     )
     policy_options = "".join(f'<option{" selected" if p == "greedy" else ""}>{p}</option>'
@@ -65,7 +66,7 @@ def hub_page(servers: list[tuple[str, int]]) -> bytes:
 body {{ margin: 0; background: var(--bg); color: var(--text); font: 14px system-ui, "Malgun Gothic", sans-serif; }}
 header {{ padding: 8px 16px; border-bottom: 1px solid var(--border); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }}
 header input, header select, header button {{ font: inherit; padding: 3px 8px; }}
-header input {{ width: 90px; }}
+header input[type=number] {{ width: 90px; }}
 main {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(900px, 1fr)); gap: 10px; padding: 10px; }}
 section {{ border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }}
 h2 {{ font-size: 14px; margin: 0; padding: 6px 10px; border-bottom: 1px solid var(--border); }}
@@ -85,6 +86,10 @@ iframe {{ width: 100%; height: 900px; border: 0; display: block; }}
 </header>
 <main>{frames}</main>
 <script>
+// each branch runs on its own port of the same host the page was opened from
+const base = (port) => `${{location.protocol}}//${{location.hostname}}:${{port}}`;
+document.querySelectorAll("iframe[data-port]").forEach((f) => (f.src = base(f.dataset.port) + "/?compact=1"));
+document.querySelectorAll("a[data-port]").forEach((a) => (a.href = base(a.dataset.port)));
 document.querySelectorAll("header button").forEach((b) => b.addEventListener("click", () => {{
   const msg = {{ type: "demo", cmd: b.dataset.cmd, seed: parseInt(document.getElementById("seed").value, 10),
     policy: document.getElementById("policy").value, speed: parseInt(document.getElementById("speed").value, 10),
@@ -99,6 +104,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--branches", nargs="+", default=DEFAULT_BRANCHES)
     parser.add_argument("--port", type=int, default=8000, help="comparison page; branches use port+1, +2, ...")
+    parser.add_argument("--host", default="127.0.0.1",
+                        help="127.0.0.1 = this PC only (default); 0.0.0.0 = also other PCs on the network")
     parser.add_argument("--open", action="store_true")
     args = parser.parse_args()
 
@@ -109,7 +116,8 @@ def main() -> None:
             port = args.port + k
             label = f"{branch} @ {git('rev-parse', '--short', 'HEAD', cwd=path)}"
             cmd = [sys.executable, str(ROOT / "scripts" / "serve.py"), "--port", str(port),
-                   "--code", str(path / "src"), "--label", label, "--runs-dir", str(ROOT / "runs")]
+                   "--code", str(path / "src"), "--label", label, "--runs-dir", str(ROOT / "runs"),
+                   "--host", args.host]
             children.append(subprocess.Popen(cmd))
             servers.append((label, port))
             print(f"  {label:<45} http://127.0.0.1:{port}")
@@ -131,9 +139,16 @@ def main() -> None:
                 self.end_headers()
                 self.wfile.write(page)
 
-        hub = ThreadingHTTPServer(("127.0.0.1", args.port), Hub)
+        hub = ThreadingHTTPServer((args.host, args.port), Hub)
         url = f"http://127.0.0.1:{args.port}"
         print(f"Comparison page: {url}  - Ctrl+C to stop all", flush=True)
+        if args.host not in ("127.0.0.1", "localhost"):
+            sys.path.insert(0, str(ROOT / "scripts"))
+            from serve import lan_addresses
+
+            for ip in lan_addresses():
+                print(f"  other PCs: http://{ip}:{args.port}  (uses ports {args.port}-{args.port + len(servers)})",
+                      flush=True)
         if args.open:
             webbrowser.open(url)
         hub.serve_forever()

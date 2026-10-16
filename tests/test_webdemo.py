@@ -105,3 +105,37 @@ def test_http_errors(server):
     with pytest.raises(urllib.error.HTTPError) as err:
         call(server + "/static/../server.py")
     assert err.value.code == 404
+
+
+def test_every_setting_has_a_korean_description():
+    from webdemo.descriptions import DESCRIPTIONS
+
+    missing = [f["key"] for s in settings_schema() for f in s["fields"] if f["key"] not in DESCRIPTIONS]
+    assert not missing
+
+
+def test_ppo_runs_are_limited_to_listed_folders(tmp_path):
+    from webdemo.server import list_policies, make_policy
+
+    (tmp_path / "pilot").mkdir()
+    (tmp_path / "pilot" / "best_model.zip").write_bytes(b"")
+    assert "ppo:pilot" in list_policies(tmp_path)
+    for name in ("ppo:../pilot", "ppo:other", "ppo:pilot/../../x"):
+        with pytest.raises(ValueError):
+            make_policy({"name": name}, tmp_path)
+
+
+def test_last_watched_survives_batched_steps():
+    s = Session(10_000, {}, {"name": "greedy", "rho": 0.6}, None)
+    s.step(600)
+    state = s.state([])
+    assert state["last_watched"] is not None
+    assert state["items"][state["last_watched"]]["w"] > 0
+
+
+def test_server_binds_requested_host():
+    srv = serve(0, host="127.0.0.1")
+    try:
+        assert srv.server_address[0] == "127.0.0.1"
+    finally:
+        srv.server_close()

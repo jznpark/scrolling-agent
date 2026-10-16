@@ -4,6 +4,7 @@ Run (PowerShell, venv active):
     python scripts\\serve.py                     # http://127.0.0.1:8000, code of this checkout
     python scripts\\serve.py --port 8001 --code .worktrees\\feature_value-error\\src --label value-error
     python scripts\\serve_branches.py            # several branches side by side (see that script)
+    python scripts\\serve.py --host 0.0.0.0       # also reachable from other PCs (open the firewall port)
 
 --code picks which `scrolling_agent` package to run (e.g. another branch's worktree);
 the web demo itself always comes from this checkout. PPO runs with best_model.zip
@@ -13,6 +14,7 @@ under --runs-dir appear as policies.
 from __future__ import annotations
 
 import argparse
+import socket
 import subprocess
 import sys
 import webbrowser
@@ -32,9 +34,20 @@ def git_label(path: Path) -> str:
         return ""
 
 
+def lan_addresses() -> list[str]:
+    """IPv4 addresses of this PC that other PCs on the network can use."""
+    try:
+        infos = socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET)
+    except OSError:
+        return []
+    return sorted({info[4][0] for info in infos if not info[4][0].startswith("127.")})
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument("--host", default="127.0.0.1",
+                        help="127.0.0.1 = this PC only (default); 0.0.0.0 = also other PCs on the network")
     parser.add_argument("--code", type=Path, default=ROOT / "src", help="src folder with scrolling_agent")
     parser.add_argument("--runs-dir", type=Path, default=ROOT / "runs")
     parser.add_argument("--label", default=None, help="name shown in the page header (default: git branch)")
@@ -50,9 +63,13 @@ def main() -> None:
     from webdemo.server import serve
 
     label = args.label or git_label(code)
-    server = serve(args.port, runs_dir=args.runs_dir, label=label)
+    server = serve(args.port, runs_dir=args.runs_dir, label=label, host=args.host)
     url = f"http://127.0.0.1:{args.port}"
     print(f"Scrolling agent demo [{label}] at {url}  (code: {code})  - Ctrl+C to stop", flush=True)
+    if args.host not in ("127.0.0.1", "localhost"):
+        for ip in lan_addresses():
+            print(f"  other PCs: http://{ip}:{args.port}", flush=True)
+        print("  no login: anyone who can reach this port can use the demo", flush=True)
     if args.open:
         webbrowser.open(url)
     try:
