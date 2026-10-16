@@ -33,12 +33,13 @@ async function api(path, body) {
   return data;
 }
 
-function toast(message) {
+function toast(message, kind = "error") {
   const el = $("toast");
   el.textContent = message;
+  el.className = `toast ${kind}`;
   el.hidden = false;
   clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => (el.hidden = true), 4000);
+  toast.timer = setTimeout(() => (el.hidden = true), kind === "info" ? 7000 : 4000);
 }
 
 // --- "?" tooltips ------------------------------------------------------------------
@@ -279,7 +280,7 @@ async function runCompare() {
   $("compare-status").textContent = `피드 ${n}개를 기본 설정과 지금 설정으로 각각 돌리는 중… (몇 초 걸립니다)`;
   $("compare-changed").innerHTML = changedSettingsText();
   try {
-    const res = await api("/api/compare", { overrides: overrides(), policy: policySpec(), n,
+    const res = await api("api/compare", { overrides: overrides(), policy: policySpec(), n,
       seed: parseInt($("seed").value, 10) });
     renderCompare(res);
     $("compare-status").textContent = `피드 ${res.n}개 (번호 ${res.seeds[0]}~${res.seeds[1]}) · 정책 ${$("policy").value} · ${res.seconds}초 걸림`;
@@ -338,7 +339,7 @@ function renderCompare(res) {
 async function reset() {
   setPlaying(false);
   try {
-    state = await api("/api/reset", { session: SESSION, seed: parseInt($("seed").value, 10),
+    state = await api("api/reset", { session: SESSION, seed: parseInt($("seed").value, 10),
       overrides: overrides(), policy: policySpec() });
   } catch (err) {
     toast(`다시 시작 실패: ${err.message}`);
@@ -367,19 +368,35 @@ function humanAction() {
   return a.stay;
 }
 
+const MOMENTS = {
+  late: (e) => `${e.text.split(" ")[0]}을(를) 화면에서 지나간 뒤에야 알아차렸어요. ▶을 누르면 다시 올라가 여는지 볼 수 있습니다.`,
+  click_late: (e) => `${e.text.split(" ")[0]}: 뒤늦게 알아챈 콘텐츠로 되돌아와 열었어요!`,
+};
+
+function momentOf(e) {
+  if (e.kind === "late") return MOMENTS.late(e);
+  if (e.kind === "click" && e.text.includes("뒤늦게")) return MOMENTS.click_late(e);
+  return null;
+}
+
 async function advance(n, action) {
   if (inflight || !state || state.done) return;
   inflight = true;
+  if ($("pause-moments").checked) n = Math.min(n, 2);  // small batches so the pause lands on the moment
   try {
     const body = { session: SESSION, n, since_event: lastEventId };
     if (action !== undefined && action !== null) body.action = action;
-    const next = await api("/api/step", body);
+    const next = await api("api/step", body);
     history.push(...next.history);
     for (const e of next.events) events.push(e);
     if (next.events.length) lastEventId = next.events[next.events.length - 1].id;
     if (events.length > 300) events = events.slice(-300);
     state = next;
     if (state.done) setPlaying(false);
+    if ($("pause-moments").checked && playing) {
+      const moment = next.events.map(momentOf).find(Boolean);
+      if (moment) { setPlaying(false); toast(moment, "info"); }
+    }
     render();
   } catch (err) {
     setPlaying(false);
@@ -536,6 +553,13 @@ function drawFeed(ctx, w, top, height) {
     ctx.fillRect(tx, by, tw * Math.max(0, Math.min(1, it.understood ? 1 : it.x)), bh);
 
     const ly = by + bh + Math.max(12, (cy + ch - by - bh) * 0.32);
+    if (it.late) {
+      ctx.fillStyle = css("--late");
+      ctx.beginPath();
+      ctx.roundRect(tx + tw - 104, ty + 6, 98, 22, 11);
+      ctx.fill();
+      text(ctx, "★ 뒤늦게 알아챔", tx + tw - 55, ty + 17.5, { size: 11, weight: 700, color: "#111", align: "center" });
+    }
     if (it.understood) {
       text(ctx, "알아봄", tx, ly, { size: 12, weight: 700, color: css("--known") });
       text(ctx, `지금 재미 ${fmt(it.rate)}` + (it.w > 0 ? ` · ${fmt(it.w, 1)}초 봄` : ""), tx + 48, ly, { size: 12 });
@@ -610,6 +634,10 @@ function drawMinimap() {
     if (showHidden && it.hidden.z) {
       ctx.fillStyle = css("--z1");
       ctx.fillRect(w - 6, y, 6, hh);
+    }
+    if (it.late) {
+      ctx.fillStyle = css("--late");
+      ctx.fillRect(w - 14, y - 1, 8, hh + 2);
     }
   }
   ctx.strokeStyle = css("--text");
@@ -745,6 +773,7 @@ function drawRates() {
       ctx.fillStyle = css("--watch");
       ctx.fillRect(x, Y(it.rate) - 3, bw, 3);
     }
+    if (it.late) text(ctx, "★", x + bw / 2, Y(it.rate) - 10, { size: 12, color: css("--late"), align: "center" });
     if (showHidden) {
       ctx.fillStyle = css("--current");
       ctx.beginPath();
@@ -915,6 +944,7 @@ function applyUrlParams() {
   if (q.has("policy") && [...$("policy").options].some((o) => o.value === q.get("policy"))) $("policy").value = q.get("policy");
   for (const k of ["seed", "speed", "rho", "dwell"]) if (q.has(k)) $(k).value = q.get(k);
   if (q.has("hidden")) $("hidden").checked = q.get("hidden") === "1";
+  if (q.has("pause")) $("pause-moments").checked = q.get("pause") === "1";
   const map = fieldsByKey();
   for (const item of q.getAll("set")) {
     const [key, ...rest] = item.split("=");
@@ -951,7 +981,7 @@ window.addEventListener("message", async (e) => {
 
 (async function start() {
   try {
-    schema = await api("/api/schema");
+    schema = await api("api/schema");
   } catch (err) {
     toast(`서버에 연결할 수 없습니다: ${err.message}`);
     return;

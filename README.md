@@ -82,7 +82,7 @@ python scripts\simulate.py --cond base --cond kappa08 feed.kappa=0.8 --tune     
 
 ```powershell
 python scripts\serve.py --open                  # 현재 브랜치: http://127.0.0.1:8000
-python scripts\serve_branches.py --open         # 브랜치 4개를 나란히 (8000 = 비교 페이지, 8001~ = 각 브랜치)
+python scripts\serve_branches.py --open         # 브랜치 4개를 탭으로 (모두 8000 하나로: /b/1/ ~ /b/4/)
 python scripts\serve_branches.py --branches feature/value-error origin/feature/attention-split
 ```
 
@@ -95,29 +95,40 @@ python scripts\serve_branches.py --branches feature/value-error origin/feature/a
 - **상황 고르기**: "좋은 콘텐츠가 드문 피드", "금방 질리는 콘텐츠", "아까 그거 괜찮았는데" 등을 고르면 설정이 바뀌고,
   아래 **행동 비교**가 기본 설정과 같은 피드 20개로 돌려 "열자마자 닫은 횟수 3배 ↑"처럼 달라진 행동을 보여 줍니다
 - 비교 페이지(8000)는 위쪽 **탭**으로 브랜치를 바꿔 봅니다 (주소 끝 `#2`처럼 탭 번호 지정 가능)
+- **늦은 깨달음 보기**: '늦은 깨달음' 탭 → 상황 '아까 그거 괜찮았는데' → '중요한 순간에 멈춤' 체크 → ▶. 지나간 카드를 뒤늦게 알아챈 순간과 그 카드로 되돌아와 여는 순간에 멈추고, 그 카드에는 ★가 붙습니다
 - 주소로 바로 열기: `http://127.0.0.1:8001/?scenario=boring_fast` (상황 id는 `descriptions.py` 참고)
 
-#### 다른 PC에서 접속하기 (같은 네트워크)
+#### 다른 PC에서 접속하기
+
+비교 페이지는 **포트 8000 하나**로 모든 브랜치를 보여 줍니다(`/b/1/`, `/b/2/` …로 중계). 밖에 열 포트는 8000 하나입니다.
+
+**A. 다른 곳(다른 네트워크)에 있는 팀원 — Cloudflare 임시 터널 (추천)**
+
+`192.168.x.x` 같은 사설 IP는 같은 공유기 안에서만 열리므로, 다른 곳에서는 터널이 필요합니다.
 
 ```powershell
-# 1) 서버를 외부 접속 허용으로 실행 — 콘솔에 "other PCs: http://192.168.x.x:8000" 주소가 나옵니다
-python scripts\serve_branches.py --host 0.0.0.0
-
-# 2) Windows 방화벽 열기 — "관리자 권한" PowerShell에서 한 번만
-New-NetFirewallRule -DisplayName "scrolling-agent demo" -Direction Inbound -Protocol TCP -LocalPort 8000-8004 -Action Allow -Profile Private,Domain
-
-# 네트워크 종류 확인 (Public이면 위 규칙이 적용되지 않음 → Private으로 바꾸거나 -Profile에 Public 추가)
-Get-NetConnectionProfile
-
-# 다 쓴 뒤 규칙 지우기
-Remove-NetFirewallRule -DisplayName "scrolling-agent demo"
+winget install --id Cloudflare.cloudflared               # 처음 한 번
+python scripts\serve_branches.py --token 비밀번호          # 터미널 1 (이 PC에서만 열어도 됨)
+cloudflared tunnel --url http://localhost:8000             # 터미널 2 → https://xxxx.trycloudflare.com 주소가 나옴
 ```
 
-- 다른 PC 브라우저에서 콘솔에 나온 주소(예: `http://192.168.0.23:8000`)로 접속합니다. IP는 `ipconfig`의 IPv4 주소입니다.
-- 처음 `--host 0.0.0.0`으로 실행할 때 Windows가 "Python 액세스 허용" 창을 띄우면 **개인 네트워크**만 체크하고 허용합니다.
-- 비교 페이지(8000)는 각 브랜치 화면(8001~8004)을 불러오므로 **포트 8000~8004를 모두** 열어야 합니다. `serve.py` 하나만 쓰면 8000만 열면 됩니다.
-- 학교 와이파이(eduroam 등)는 기기끼리 연결을 막는 경우가 많습니다. 안 되면 같은 공유기/연구실 LAN에서 쓰거나, VS Code 하단 **포트** 탭에서 포트를 전달(Forward)해 주소를 공유하세요.
-- 로그인이 없으므로 믿을 수 있는 네트워크에서만 여세요. 기본값(`--host` 없이 실행)은 이 PC에서만 접속됩니다.
+- 팀원에게 `https://xxxx.trycloudflare.com/?token=비밀번호` 를 보냅니다. 한 번 들어오면 쿠키로 기억합니다.
+- 주소는 실행할 때마다 바뀌고, 두 터미널을 끄면 바로 닫힙니다. 쓰는 동안에만 켜 두세요.
+- `--token` 없이 열면 링크를 아는 누구나 들어올 수 있습니다.
+
+**B. 같은 공유기(같은 와이파이)에 있는 PC**
+
+```powershell
+python scripts\serve_branches.py --host 0.0.0.0
+# "관리자 권한" PowerShell에서 한 번만: 포트 8000 열기
+New-NetFirewallRule -DisplayName "scrolling-agent demo" -Direction Inbound -Protocol TCP -LocalPort 8000 -Action Allow -Profile Private,Domain
+Get-NetConnectionProfile                                   # Public이면 규칙이 적용되지 않음 → 개인 네트워크로 변경
+Remove-NetFirewallRule -DisplayName "scrolling-agent demo" # 다 쓴 뒤
+```
+
+- 콘솔에 나온 주소(예: `http://192.168.0.3:8000`)로 접속합니다. 처음 실행 때 "Python 액세스 허용" 창이 뜨면 **개인 네트워크**만 허용합니다.
+- 학교 와이파이(eduroam 등)는 기기끼리 연결을 막는 경우가 많습니다 → A 방법을 쓰세요.
+- 다른 대안: VS Code 하단 **포트** 탭에서 8000을 전달(공개 범위 Public), 또는 팀원 모두 Tailscale 설치.
 
 어떤 설정이든 `--set 섹션.필드=값`으로 바꿀 수 있습니다 (예: `--set ddm.noise=0.3 screen.speeds="(0.5, 1.5)"`).
 섹션: `time`, `screen`, `ddm`, `feed` (+ 확장 브랜치의 새 섹션).

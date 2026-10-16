@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Scrolling Agent Demo</title>
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="static/style.css">
 </head>
 <body>
   <header class="topbar">
@@ -43,6 +43,7 @@
         <span class="inline"><input id="speed" type="range" min="1" max="200" value="10"><span id="speed-label" class="small"></span></span>
       </div>
       <label class="check"><input id="hidden" type="checkbox"> 숨은 값 보기 (H) <span class="help" data-help="hidden">?</span></label>
+      <label class="check"><input id="pause-moments" type="checkbox"> 중요한 순간에 멈춤 <span class="help" data-help="pause">?</span></label>
     </div>
     <div id="scenario-note" class="scenario-note" hidden></div>
   </header>
@@ -60,6 +61,7 @@
             <div><i style="background:var(--evidence)"></i>알아보는 중</div>
             <div><i style="background:var(--watch)"></i>본 시간</div>
             <div><i class="box"></i>지금 화면</div>
+            <div><i style="background:var(--late)"></i>뒤늦게 알아챔</div>
           </div>
         </div>
       </div>
@@ -113,6 +115,6 @@
 
   <div id="tooltip" class="tooltip" hidden></div>
   <div id="toast" class="toast" hidden></div>
-  <script src="/static/app.js"></script>
+  <script src="static/app.js"></script>
 </body>
 </html>

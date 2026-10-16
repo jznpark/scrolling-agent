@@ -226,6 +226,7 @@ class Session:
         self.n_clicks = 0
         self.last_action: int | None = None
         self.last_watched: int | None = None  # most recent item opened (shown in the rate curve)
+        self.late_items: set[int] = set()     # understood only after leaving the screen
         self.last_reward = 0.0
         self.events: deque[dict[str, Any]] = deque(maxlen=300)
         self.event_id = 0
@@ -256,7 +257,10 @@ class Session:
             if mode_before == LIST and a in env.slot_actions:
                 item = int(env.visible_slots()[env.slot_actions.index(a)])
                 self.n_clicks += 1
-                self._event("click", f"#{item} 열기" + (" (다시 보기)" if env.w[item] > 0 else ""))
+                note = " (다시 보기)" if env.w[item] > 0 else ""
+                if item in self.late_items:
+                    note += " ← 뒤늦게 알아챈 콘텐츠로 되돌아옴"
+                self._event("click", f"#{item} 열기{note}")
             if mode_before == WATCH and a == env.back_action:
                 self._event("back", f"#{current_before} 닫음 ({env.w[current_before]:.1f}초 봄)")
             _, reward, *_ = env.step(a)
@@ -267,6 +271,8 @@ class Session:
             on_screen = set(visible_items(env.scroll, env.n_items, env.screen_h, env.cfg.screen.visible_fraction))
             for i in np.flatnonzero(env.understood & ~understood_before):
                 where = "" if i in on_screen else " — 지나간 뒤에 뒤늦게!"
+                if where:
+                    self.late_items.add(int(i))
                 self._event("understood" if not where else "late", f"#{i} 뭔지 알아봄{where}")
             history.append([round(env.step_count * self.cfg.time.dt, 2), round(self.total, 4), int(env.mode)])
         return history
@@ -280,6 +286,7 @@ class Session:
             "id": i,
             "seen": bool(env.exposure[i] > 0),
             "understood": bool(env.understood[i]),
+            "late": i in self.late_items,
             "x": round(float(env.x[i] / B), 4),
             "exposure": round(float(env.exposure[i]), 2),
             "w": round(float(env.w[i]), 2),

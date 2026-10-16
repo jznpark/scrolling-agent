@@ -228,8 +228,10 @@ summary { cursor: pointer; font-weight: 600; padding: 3px 0; }
 
 .toast {
   position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); z-index: 60;
-  background: var(--current); color: #fff; padding: 8px 14px; border-radius: 6px;
+  background: var(--current); color: #fff; padding: 10px 16px; border-radius: 8px; max-width: min(640px, 92vw);
+  font-size: 14px; box-shadow: 0 6px 20px rgba(0,0,0,.25);
 }
+.toast.info { background: var(--late); color: #111; font-weight: 600; }
 
 /* inside the branch comparison page */
 body.compact .brand #module { display: none; }
