@@ -78,6 +78,20 @@ python scripts\simulate.py --cond base --cond crowded screen.cards_per_screen=5
 python scripts\simulate.py --cond base --cond kappa08 feed.kappa=0.8 --tune     # 조건마다 rho 다시 맞춤
 ```
 
+### 웹 화면에서 실시간으로 보기 (로컬 서버, 추가 설치 없음)
+
+```powershell
+python scripts\serve.py --open                  # 현재 브랜치: http://127.0.0.1:8000
+python scripts\serve_branches.py --open         # 브랜치 4개를 나란히 (8000 = 비교 페이지, 8001~ = 각 브랜치)
+python scripts\serve_branches.py --branches feature/value-error origin/feature/attention-split
+```
+
+- 정책(random / scrollfirst / greedy / greedy-dwell / 학습된 PPO / **human = 직접 플레이**)과 seed, 모든 설정을 화면에서 바꾸고 재생·일시정지·한 스텝
+- 직접 플레이: `↓`/`↑` 누르고 있으면 이동, `1`~`4` 보이는 칸 클릭, `B` back, `Space` 멈춤
+- `H` 숨은 값(실제 A·ν·z) 표시, 오른쪽에 전체 목록 지도·상태·누적 보상·사건 기록(늦은 이해 등)
+- 주소로 조건 지정: `http://127.0.0.1:8000/?policy=greedy-dwell&dwell=0.5&set=ddm.attention=log&skip=300&autoplay=1`
+- `serve_branches.py`는 각 브랜치를 `.worktrees/`에 따로 꺼내 실행하므로 브랜치 자체는 바뀌지 않습니다
+
 어떤 설정이든 `--set 섹션.필드=값`으로 바꿀 수 있습니다 (예: `--set ddm.noise=0.3 screen.speeds="(0.5, 1.5)"`).
 섹션: `time`, `screen`, `ddm`, `feed` (+ 확장 브랜치의 새 섹션).
 

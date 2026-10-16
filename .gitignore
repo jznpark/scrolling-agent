@@ -32,3 +32,6 @@ desktop.ini
 # Personal Claude Code settings
 CLAUDE.local.md
 .claude/settings.local.json
+
+# Branch worktrees for the web demo (scripts/serve_branches.py)
+.worktrees/

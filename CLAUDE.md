@@ -33,6 +33,8 @@ do not change agreed settings; proposals may change but record the change in `do
 - `src/scrolling_agent/policies.py` — baselines, PPO wrapper, reference return (steps 4–5)
 - `src/scrolling_agent/evaluation.py`, `viz.py` — episode metrics / trace and plots
 - `scripts/train_ppo.py`, `evaluate.py`, `visualize.py` — training, comparison, watching one episode
+- `webdemo/` + `scripts/serve.py`, `serve_branches.py` — local web demo (stdlib HTTP server; `--code` runs another
+  branch's `src`, worktrees in `.worktrees/`); outside the package so one demo can run any branch
 - `scripts/` — runnable entry points; `tests/` — pytest; `docs/` — design notes
 
 ## Commands (Windows PowerShell)
