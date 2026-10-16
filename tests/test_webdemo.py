@@ -168,3 +168,11 @@ def test_compare_behaviour_same_lists():
     assert rows["mean_bout"]["now"] < rows["mean_bout"]["base"]  # content gets boring faster
     same = compare_behaviour({}, {"name": "greedy"}, None, n=2)
     assert all(r["base"] == r["now"] for r in same["rows"])
+
+
+def test_no_false_late_events_without_residual_processing():
+    """In the base model nothing can be understood off screen."""
+    for seed in (10_000, 10_005):
+        s = Session(seed, {}, {"name": "greedy", "rho": 0.6}, None)
+        s.step(600)
+        assert not [e for e in s.events if e["kind"] == "late"] and not s.late_items
