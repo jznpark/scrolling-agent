@@ -168,3 +168,13 @@ def test_compare_behaviour_same_lists():
     assert rows["mean_bout"]["now"] < rows["mean_bout"]["base"]  # content gets boring faster
     same = compare_behaviour({}, {"name": "greedy"}, None, n=2)
     assert all(r["base"] == r["now"] for r in same["rows"])
+
+
+@pytest.mark.skipif(__import__("sys").platform != "win32", reason="Windows-only SO_REUSEADDR behaviour")
+def test_second_server_on_same_port_is_refused():
+    first = serve(0)
+    try:
+        with pytest.raises(OSError):
+            serve(first.server_address[1])
+    finally:
+        first.server_close()

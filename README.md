@@ -80,6 +80,8 @@ python scripts\simulate.py --cond base --cond kappa08 feed.kappa=0.8 --tune     
 
 ### 웹 화면에서 실시간으로 보기 (로컬 서버, 추가 설치 없음)
 
+> 처음 쓰는 분은 캡처가 있는 **[웹 데모 사용 가이드](docs/guide/README.md)**를 먼저 보세요.
+
 ```powershell
 python scripts\serve.py --open                  # 현재 브랜치: http://127.0.0.1:8000
 python scripts\serve_branches.py --open         # 브랜치 4개를 탭으로 (모두 8000 하나로: /b/1/ ~ /b/4/)

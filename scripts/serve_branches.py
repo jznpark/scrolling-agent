@@ -230,9 +230,11 @@ def make_hub(host: str, port: int, labels: list[str], ports: list[int], token: s
         def do_POST(self):
             self._handle("POST")
 
-    server = ThreadingHTTPServer((host, port), Hub)
-    server.daemon_threads = True
-    return server
+    class HubServer(ThreadingHTTPServer):
+        daemon_threads = True
+        allow_reuse_address = sys.platform != "win32"  # Windows would bind a used port silently
+
+    return HubServer((host, port), Hub)
 
 
 def main() -> None:

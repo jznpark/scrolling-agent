@@ -20,6 +20,7 @@ from __future__ import annotations
 import inspect
 import json
 import re
+import sys
 import threading
 import time
 from collections import deque
@@ -339,6 +340,8 @@ class Session:
 
 class DemoServer(ThreadingHTTPServer):
     daemon_threads = True
+    # On Windows SO_REUSEADDR lets a second server bind the same port silently; refuse instead.
+    allow_reuse_address = sys.platform != "win32"
 
     def __init__(self, address, runs_dir: Path | None = None, label: str = ""):
         super().__init__(address, DemoHandler)
