@@ -1,4 +1,4 @@
-"""Run the web demo for several branches at once and compare them side by side.
+"""Run the web demo for several branches at once and switch between them with tabs.
 
 Run (PowerShell, venv active, from this checkout):
     python scripts\\serve_branches.py --open
@@ -6,7 +6,7 @@ Run (PowerShell, venv active, from this checkout):
     python scripts\\serve_branches.py --host 0.0.0.0     # also other PCs (open ports 8000-8004 in the firewall)
 
 Each branch is checked out (detached) into .worktrees/<branch> and served from its
-own port (base port + 1, + 2, ...); the base port shows all of them in one page.
+own port (base port + 1, + 2, ...); the base port shows them as tabs.
 The branches are not modified. Each branch must contain the shared tooling
 (revealed_profile / extra_metrics, i.e. be based on feature/ppo or later).
 Use origin/<branch> names to run what is on GitHub.
@@ -50,51 +50,97 @@ def checkout(branch: str) -> Path:
     return path
 
 
+BRANCH_NAMES = {  # branch name fragment -> everyday name of what that branch adds
+    "value-error": "썸네일 착각 (가치 추정 오차)",
+    "offscreen-residual": "늦은 깨달음 (화면 밖 잔여 처리)",
+    "attention-split": "화면 붐빔 (주의 분산)",
+    "ppo": "기본 모델",
+    "web-demo": "기본 모델",
+    "main": "기본 모델",
+}
+
+
+def friendly_name(branch: str) -> str:
+    for fragment, name in BRANCH_NAMES.items():
+        if fragment in branch:
+            return name
+    return branch
+
+
 def hub_page(servers: list[tuple[str, int]]) -> bytes:
+    """One page with a tab per branch; only the selected branch is shown."""
+    tabs = "\n".join(
+        f'<button class="tab" data-i="{k}" title="{html.escape(label)}">{html.escape(friendly_name(label))}'
+        f'<small>{html.escape(label.split(" @ ")[0])}</small></button>'
+        for k, (label, _) in enumerate(servers)
+    )
     frames = "\n".join(
-        f'<section><h2>{html.escape(name)} <a data-port="{port}" target="_blank">:{port} ↗</a></h2>'
-        f'<iframe data-port="{port}" title="{html.escape(name)}"></iframe></section>'
-        for name, port in servers
+        f'<iframe data-i="{k}" data-port="{port}" title="{html.escape(label)}"></iframe>'
+        for k, (label, port) in enumerate(servers)
     )
     policy_options = "".join(f'<option{" selected" if p == "greedy" else ""}>{p}</option>'
-                             for p in ["greedy", "greedy-dwell", "scrollfirst", "random"])
+                             for p in ["greedy", "greedy-dwell", "scrollfirst", "random", "human"])
     page = f"""<!doctype html><html lang="ko"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1"><title>Branch comparison</title>
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>브랜치 비교</title>
 <style>
-:root {{ --bg: #f5f6f8; --text: #1f2328; --border: #d8dce2; }}
-@media (prefers-color-scheme: dark) {{ :root {{ --bg: #111317; --text: #e6e8eb; --border: #2f343d; }} }}
-body {{ margin: 0; background: var(--bg); color: var(--text); font: 14px system-ui, "Malgun Gothic", sans-serif; }}
-header {{ padding: 8px 16px; border-bottom: 1px solid var(--border); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }}
-header input, header select, header button {{ font: inherit; padding: 3px 8px; }}
-header input[type=number] {{ width: 90px; }}
-main {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(900px, 1fr)); gap: 10px; padding: 10px; }}
-section {{ border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }}
-h2 {{ font-size: 14px; margin: 0; padding: 6px 10px; border-bottom: 1px solid var(--border); }}
-a {{ color: inherit; font-weight: normal; font-size: 12px; }}
-iframe {{ width: 100%; height: 900px; border: 0; display: block; }}
+:root {{ --bg: #f5f6f8; --panel: #fff; --text: #1f2328; --muted: #6b7280; --border: #d8dce2; --accent: #2563eb; }}
+@media (prefers-color-scheme: dark) {{ :root {{ --bg: #111317; --panel: #1a1d23; --text: #e6e8eb; --muted: #9aa1ab; --border: #2f343d; --accent: #6ea0ff; }} }}
+* {{ box-sizing: border-box; }}
+html, body {{ height: 100%; margin: 0; }}
+body {{ background: var(--bg); color: var(--text); font: 14px system-ui, "Malgun Gothic", sans-serif; display: flex; flex-direction: column; }}
+header {{ background: var(--panel); border-bottom: 1px solid var(--border); padding: 8px 14px 0; }}
+.row {{ display: flex; gap: 8px 14px; align-items: center; flex-wrap: wrap; }}
+.tabs {{ display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }}
+.tab {{ font: inherit; font-size: 15px; font-weight: 600; color: var(--muted); background: transparent; border: 1px solid transparent;
+  border-bottom: none; border-radius: 8px 8px 0 0; padding: 8px 16px 6px; cursor: pointer; display: flex; flex-direction: column; align-items: flex-start; }}
+.tab small {{ font-size: 11px; font-weight: 400; }}
+.tab:hover {{ color: var(--text); }}
+.tab.active {{ color: var(--accent); background: var(--bg); border-color: var(--border); margin-bottom: -1px; }}
+.sync {{ font-size: 13px; color: var(--muted); }}
+.sync input, .sync select, .sync button {{ font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; }}
+.sync input[type=number] {{ width: 90px; }}
+.sync button {{ cursor: pointer; }}
+main {{ position: relative; flex: 1; min-height: 0; }}
+iframe {{ position: absolute; inset: 0; width: 100%; height: 100%; border: 0; visibility: hidden; }}
+iframe.active {{ visibility: visible; }}
 </style></head><body>
-<header><b>브랜치 비교</b>
-  <label>seed <input id="seed" type="number" value="10000"></label>
-  <label>policy <select id="policy">{policy_options}</select></label>
-  <label>속도 <input id="speed" type="number" value="20" min="1" max="200"></label>
-  <label><input id="hidden" type="checkbox"> 숨은 값</label>
-  <button data-cmd="reset">모두 같은 조건으로 다시 시작</button>
-  <button data-cmd="play">▶ 모두 재생</button>
-  <button data-cmd="pause">⏸ 모두 멈춤</button>
-  <button data-cmd="step">한 스텝</button>
-  <span style="opacity:.7">각 화면의 설정(확장 값 등)은 화면마다 따로 바꿀 수 있습니다. 크게 보려면 ↗</span>
+<header>
+  <div class="row sync">
+    <b style="color:var(--text);font-size:15px">브랜치 비교</b>
+    <span>모든 탭에 같이 적용:</span>
+    <label>피드 번호 <input id="seed" type="number" value="10000"></label>
+    <label>누가 조작? <select id="policy">{policy_options}</select></label>
+    <label>속도 <input id="speed" type="number" value="20" min="1" max="200"></label>
+    <label><input id="hidden" type="checkbox"> 숨은 값</label>
+    <button data-cmd="reset">같은 조건으로 다시 시작</button>
+    <button data-cmd="play">▶ 모두 재생</button>
+    <button data-cmd="pause">⏸ 모두 멈춤</button>
+    <a id="open" target="_blank" style="margin-left:auto;color:var(--muted)">이 탭만 새 창으로 ↗</a>
+  </div>
+  <div class="tabs">{tabs}</div>
 </header>
 <main>{frames}</main>
 <script>
-// each branch runs on its own port of the same host the page was opened from
+// each branch runs on its own port of the same host this page was opened from
 const base = (port) => `${{location.protocol}}//${{location.hostname}}:${{port}}`;
-document.querySelectorAll("iframe[data-port]").forEach((f) => (f.src = base(f.dataset.port) + "/?compact=1"));
-document.querySelectorAll("a[data-port]").forEach((a) => (a.href = base(a.dataset.port)));
-document.querySelectorAll("header button").forEach((b) => b.addEventListener("click", () => {{
+const frames = [...document.querySelectorAll("iframe")];
+const tabs = [...document.querySelectorAll(".tab")];
+frames.forEach((f) => (f.src = base(f.dataset.port) + "/?compact=1"));
+function show(i) {{
+  i = Math.max(0, Math.min(frames.length - 1, i));
+  frames.forEach((f, k) => f.classList.toggle("active", k === i));
+  tabs.forEach((t, k) => t.classList.toggle("active", k === i));
+  document.getElementById("open").href = base(frames[i].dataset.port);
+  history.replaceState(null, "", "#" + (i + 1));
+  frames[i].focus();
+}}
+tabs.forEach((t) => t.addEventListener("click", () => show(parseInt(t.dataset.i, 10))));
+show(parseInt(location.hash.slice(1) || "1", 10) - 1);
+document.querySelectorAll("header button[data-cmd]").forEach((b) => b.addEventListener("click", () => {{
   const msg = {{ type: "demo", cmd: b.dataset.cmd, seed: parseInt(document.getElementById("seed").value, 10),
     policy: document.getElementById("policy").value, speed: parseInt(document.getElementById("speed").value, 10),
     hidden: document.getElementById("hidden").checked }};
-  document.querySelectorAll("iframe").forEach((f) => f.contentWindow.postMessage(msg, "*"));
+  frames.forEach((f) => f.contentWindow.postMessage(msg, "*"));
 }}));
 </script></body></html>"""
     return page.encode()

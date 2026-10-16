@@ -138,15 +138,19 @@ function buildSettings() {
       row.className = "field";
       const name = document.createElement("span");
       name.className = "name";
-      name.textContent = field.name;
+      name.textContent = field.label || field.name;
       if (field.tag) {
         const tag = document.createElement("span");
         tag.className = `tag ${field.tag.toLowerCase()}`;
         tag.textContent = field.tag;
         name.appendChild(tag);
       }
+      const code = document.createElement("span");
+      code.className = "code";
+      code.textContent = field.key;
+      name.appendChild(code);
       const tip = field.help + (field.comment && field.help !== field.comment ? `<br><span class="small" style="opacity:.7">config.py: ${field.comment}</span>` : "");
-      row.append(name, helpMark(tip, field.key), fieldInput(field));
+      row.append(name, helpMark(tip, `${field.label} · ${field.key}`), fieldInput(field));
       det.appendChild(row);
     }
     root.appendChild(det);
@@ -212,6 +216,121 @@ function loadSetup() {
 
 function openDrawer(open) {
   $("drawer").hidden = !open;
+}
+
+// --- situations (scenarios) ---------------------------------------------------------
+
+function buildScenarios() {
+  const sel = $("scenario");
+  sel.innerHTML = "";
+  sel.add(new Option("직접 설정 (지금 값 그대로)", ""));
+  for (const sc of schema.scenarios) sel.add(new Option(sc.name, sc.id));
+}
+
+function setAllDefaults() {
+  const map = fieldsByKey();
+  for (const input of document.querySelectorAll("#settings input[data-key], #settings select[data-key]")) {
+    setInput(input, map[input.dataset.key], map[input.dataset.key].default);
+    markChanged(input, map[input.dataset.key]);
+  }
+}
+
+async function applyScenario(id) {
+  const sc = schema.scenarios.find((s) => s.id === id);
+  const note = $("scenario-note");
+  if (!sc) { note.hidden = true; return; }
+  setAllDefaults();
+  const map = fieldsByKey();
+  for (const [key, value] of Object.entries(sc.set)) {
+    const input = settingInput(key);
+    if (input) { setInput(input, map[key], value); markChanged(input, map[key]); }
+  }
+  if (sc.policy) $("policy").value = sc.policy;
+  if (sc.dwell !== undefined) $("dwell").value = sc.dwell;
+  const changed = Object.keys(sc.set).map((k) => `<b>${map[k].label}</b>`).join(", ");
+  note.innerHTML = `<b>${sc.name}</b>${changed ? ` — 바뀐 설정: ${changed}` : ""}<br>예상되는 행동: ${sc.expect}`;
+  note.hidden = false;
+  renderKeys();
+  await reset();
+  runCompare();
+}
+
+function changedSettingsText() {
+  const map = fieldsByKey();
+  const ov = overrides();
+  const keys = Object.keys(ov);
+  if (!keys.length) return "바꾼 설정이 없습니다 — 기본 설정끼리 비교합니다. 위에서 '상황'을 고르거나 ⚙ 설정에서 값을 바꿔 보세요.";
+  return "기본과 다른 설정: " + keys.map((k) => {
+    const v = Array.isArray(ov[k]) ? ov[k].join(", ") : ov[k];
+    const d = Array.isArray(map[k].default) ? map[k].default.join(", ") : map[k].default;
+    return `<b>${map[k].label}</b> ${fmt(d, 3)} → ${fmt(v, 3)}`;
+  }).join(" · ");
+}
+
+// --- behaviour comparison ------------------------------------------------------------
+
+let comparing = false;
+
+async function runCompare() {
+  if (comparing) return;
+  comparing = true;
+  const n = parseInt($("compare-n").value, 10);
+  $("compare-run").disabled = true;
+  $("compare-status").textContent = `피드 ${n}개를 기본 설정과 지금 설정으로 각각 돌리는 중… (몇 초 걸립니다)`;
+  $("compare-changed").innerHTML = changedSettingsText();
+  try {
+    const res = await api("/api/compare", { overrides: overrides(), policy: policySpec(), n,
+      seed: parseInt($("seed").value, 10) });
+    renderCompare(res);
+    $("compare-status").textContent = `피드 ${res.n}개 (번호 ${res.seeds[0]}~${res.seeds[1]}) · 정책 ${$("policy").value} · ${res.seconds}초 걸림`;
+  } catch (err) {
+    $("compare-status").textContent = "";
+    toast(`비교 실패: ${err.message}`);
+  } finally {
+    comparing = false;
+    $("compare-run").disabled = false;
+  }
+}
+
+function change(row) {
+  const { base, now } = row;
+  if (Math.abs(now - base) < 1e-9 || (Math.abs(base) < 0.05 && Math.abs(now) < 0.05)) return { text: "변화 없음", cls: "same", size: 0 };
+  if (Math.abs(base) < 1e-6) return { text: `0 → ${fmt(now, 1)}`, cls: now > 0 ? "up" : "down", size: 9 };
+  const ratio = now / base;
+  if (base > 0 && ratio > 0 && (ratio >= 1.5 || ratio <= 0.67)) {
+    const text = ratio >= 1 ? `${fmt(ratio, 1)}배 ↑` : `${fmt(1 / ratio, 1)}분의 1 ↓`;
+    return { text, cls: ratio >= 1 ? "up" : "down", size: Math.abs(Math.log(ratio)) };
+  }
+  const pct = ((now - base) / Math.abs(base)) * 100;
+  if (Math.abs(pct) < 5) return { text: "거의 같음", cls: "same", size: 0 };
+  return { text: `${pct > 0 ? "+" : ""}${pct.toFixed(0)}%`, cls: pct > 0 ? "up" : "down", size: Math.abs(pct) / 100 };
+}
+
+function renderCompare(res) {
+  const table = $("compare-table");
+  table.innerHTML = "<tr><th>행동</th><th class='num'>기본 설정</th><th class='num'>지금 설정</th><th></th><th class='chg'>변화</th></tr>";
+  const changes = [];
+  for (const row of res.rows) {
+    const c = change(row);
+    if (row.key !== "return" && c.size > 0) changes.push({ row, c });
+    const max = Math.max(Math.abs(row.base), Math.abs(row.now), 1e-9);
+    const tr = table.insertRow();
+    tr.innerHTML =
+      `<td>${row.label}${row.hint ? `<div class="hint">${row.hint}</div>` : ""}</td>` +
+      `<td class="num">${fmt(row.base, 1)}${row.unit}</td><td class="num"><b>${fmt(row.now, 1)}${row.unit}</b></td>` +
+      `<td class="bars"><div class="bar base" style="width:${(100 * Math.abs(row.base)) / max}%"></div>` +
+      `<div class="bar now" style="width:${(100 * Math.abs(row.now)) / max}%"></div></td>` +
+      `<td class="chg ${c.cls}">${c.text}</td>`;
+  }
+  const ret = res.rows.find((r) => r.key === "return");
+  const top = changes.sort((a, b) => b.c.size - a.c.size).slice(0, 3);
+  const parts = top.map(({ row, c }) => `<b>${row.label}</b> ${c.text}`);
+  let summary = parts.length ? `가장 크게 달라진 행동: ${parts.join(", ")}.` : "행동이 거의 달라지지 않았습니다.";
+  if (ret) {
+    const c = change(ret);
+    summary += ` 얻은 재미는 ${fmt(ret.base, 1)} → ${fmt(ret.now, 1)} (${c.text}).`;
+  }
+  $("compare-summary").innerHTML = summary;
 }
 
 // --- episode control -----------------------------------------------------------------
@@ -369,7 +488,7 @@ function drawPhone() {
   ctx.globalAlpha = 1;
 
   const pill = $("phone-mode");
-  pill.textContent = state.mode === "WATCH" ? `시청 중 #${state.current}` : state.mode === "TRANSITION" ? "화면 전환" : "목록";
+  pill.textContent = state.mode === "WATCH" ? `#${state.current} 보는 중` : state.mode === "TRANSITION" ? "여닫는 중" : "목록 보는 중";
   pill.className = `pill ${state.mode}`;
 }
 
@@ -418,17 +537,17 @@ function drawFeed(ctx, w, top, height) {
 
     const ly = by + bh + Math.max(12, (cy + ch - by - bh) * 0.32);
     if (it.understood) {
-      text(ctx, "이해함", tx, ly, { size: 12, weight: 700, color: css("--known") });
-      text(ctx, `A ${fmt(it.A)} · λ ${fmt(it.lam)}` + (it.w > 0 ? ` · 본 시간 ${fmt(it.w, 1)}s` : ""), tx + 48, ly, { size: 12 });
+      text(ctx, "알아봄", tx, ly, { size: 12, weight: 700, color: css("--known") });
+      text(ctx, `지금 재미 ${fmt(it.rate)}` + (it.w > 0 ? ` · ${fmt(it.w, 1)}초 봄` : ""), tx + 48, ly, { size: 12 });
     } else {
-      text(ctx, it.seen ? `파악 중 ${Math.round(Math.max(0, it.x) * 100)}% · ${fmt(it.exposure, 1)}s` : "아직 안 봄", tx, ly,
+      text(ctx, it.seen ? `알아보는 중 ${Math.round(Math.max(0, it.x) * 100)}% · ${fmt(it.exposure, 1)}초 봄` : "아직 안 봄", tx, ly,
         { size: 12, color: css("--muted") });
     }
     if (showHidden) {
       const differs = it.understood && (Math.abs(it.A - it.hidden.A) > 1e-6 || Math.abs(it.lam - it.hidden.lam) > 1e-6);
       const hidden = it.understood
-        ? (differs ? `실제 A ${fmt(it.hidden.A)} · λ ${fmt(it.hidden.lam)}` : "")
-        : `숨은 값 A ${fmt(it.hidden.A)} · ν ${fmt(it.hidden.nu)} · z ${it.hidden.z}`;
+        ? (differs ? `착각! 실제 지금 재미 ${fmt(it.hidden.rate)}` : "")
+        : `실제: 재미 ${fmt(it.hidden.A)} · 알아보기 쉬움 ${fmt(it.hidden.nu)}${it.hidden.z ? " · 좋은 콘텐츠" : ""}`;
       if (hidden) text(ctx, hidden, tx, ly + 17, { size: 11, italic: true,
         color: differs ? css("--current") : it.hidden.z ? css("--z1") : css("--hidden") });
     }
@@ -524,7 +643,7 @@ function rhoLine(ctx, x0, pw, Y) {
   ctx.lineTo(x0 + pw, Y(rho));
   ctx.stroke();
   ctx.setLineDash([]);
-  text(ctx, `ρ ${fmt(rho)}`, x0 + pw - 2, Y(rho) - 8, { size: 11, color: css("--muted"), align: "right" });
+  text(ctx, `볼 만한 기준 ${fmt(rho)}`, x0 + pw - 2, Y(rho) - 8, { size: 11, color: css("--muted"), align: "right" });
 }
 
 function drawCurve() {
@@ -534,15 +653,15 @@ function drawCurve() {
   const id = state.current !== null ? state.current : state.last_watched;
   const title = $("curve-title");
   if (id === null) {
-    title.textContent = "시청 중인 콘텐츠의 보상률";
-    text(ctx, "아직 시청한 콘텐츠가 없습니다.", w / 2, h / 2 - 10, { size: 13, color: css("--muted"), align: "center" });
-    text(ctx, "이해한 후보를 클릭하면 보상률 곡선 A·e^(−λw)가 여기에 나타납니다.", w / 2, h / 2 + 12,
+    title.textContent = "보고 있는 콘텐츠의 재미";
+    text(ctx, "아직 열어 본 콘텐츠가 없습니다.", w / 2, h / 2 - 10, { size: 13, color: css("--muted"), align: "center" });
+    text(ctx, "콘텐츠를 열면, 볼수록 재미가 줄어드는 모습이 여기에 나타납니다.", w / 2, h / 2 + 12,
       { size: 12, color: css("--muted"), align: "center" });
     return;
   }
   const it = state.items[id];
   const watching = state.current !== null;
-  title.textContent = watching ? `#${id} 보상률 (시청 중)` : `#${id} 보상률 (마지막으로 본 콘텐츠)`;
+  title.textContent = watching ? `#${id}의 재미 (보는 중)` : `#${id}의 재미 (마지막으로 본 콘텐츠)`;
   const showHidden = $("hidden").checked;
   const x0 = 44, y0 = h - 26, pw = w - x0 - 14, ph = h - 46;
   const tMax = Math.max(10, it.w * 1.5 + 2);
@@ -582,12 +701,12 @@ function drawCurve() {
   ctx.fill();
 
   const gained = it.A / Math.max(it.lam, 1e-9) * (1 - Math.exp(-it.lam * it.w));
-  text(ctx, `지금 보상률 ${fmt(it.rate)}`, x0 + pw, 12, { size: 12, weight: 600, align: "right" });
-  text(ctx, `본 시간 ${fmt(it.w, 1)}s · 얻은 보상 ${fmt(gained)}` + (showHidden ? ` · 실제 보상률 ${fmt(it.hidden.rate)}` : ""),
+  text(ctx, `지금 재미 ${fmt(it.rate)}`, x0 + pw, 12, { size: 12, weight: 600, align: "right" });
+  text(ctx, `본 시간 ${fmt(it.w, 1)}초 · 얻은 재미 ${fmt(gained)}` + (showHidden ? ` · 실제 지금 재미 ${fmt(it.hidden.rate)}` : ""),
     x0 + pw, 28, { size: 11, color: css("--muted"), align: "right" });
   text(ctx, fmt(rMax, 1), x0 - 6, Y(rMax), { size: 10, color: css("--muted"), align: "right" });
   text(ctx, "0", x0 - 6, y0, { size: 10, color: css("--muted"), align: "right" });
-  text(ctx, `시청 시간 w (0 ~ ${tMax.toFixed(0)}s)`, x0 + pw, y0 + 14, { size: 10, color: css("--muted"), align: "right" });
+  text(ctx, `본 시간 (0 ~ ${tMax.toFixed(0)}초) →`, x0 + pw, y0 + 14, { size: 10, color: css("--muted"), align: "right" });
 }
 
 function drawRates() {
@@ -634,10 +753,10 @@ function drawRates() {
     }
   }
   rhoLine(ctx, x0, pw, Y);
-  if (!known.length) text(ctx, "아직 이해한 후보가 없습니다", x0 + pw / 2, y0 - ph / 2, { size: 12, color: css("--muted"), align: "center" });
+  if (!known.length) text(ctx, "아직 뭔지 알아본 콘텐츠가 없습니다", x0 + pw / 2, y0 - ph / 2, { size: 12, color: css("--muted"), align: "center" });
   text(ctx, fmt(rMax, 1), x0 - 6, Y(rMax), { size: 10, color: css("--muted"), align: "right" });
   text(ctx, "0", x0 - 6, y0, { size: 10, color: css("--muted"), align: "right" });
-  text(ctx, `목록 위치 0 ~ ${hiIdx} (파랑 배경 = 화면)`, x0 + pw, y0 + 13, { size: 10, color: css("--muted"), align: "right" });
+  text(ctx, `목록에서의 위치 0 ~ ${hiIdx}번 (파란 배경 = 지금 화면)`, x0 + pw, y0 + 13, { size: 10, color: css("--muted"), align: "right" });
 }
 
 function drawChart() {
@@ -664,21 +783,21 @@ function drawChart() {
   ctx.stroke();
   text(ctx, fmt(hi, 1), x0 - 6, Y(hi), { size: 10, color: css("--muted"), align: "right" });
   text(ctx, fmt(lo, 1), x0 - 6, Y(lo), { size: 10, color: css("--muted"), align: "right" });
-  text(ctx, `시간 0 ~ ${T}s`, x0 + pw, y0 + 11, { size: 10, color: css("--muted"), align: "right" });
+  text(ctx, `시간 0 ~ ${T}초 →`, x0 + pw, y0 + 11, { size: 10, color: css("--muted"), align: "right" });
 }
 
 function renderStats() {
   const s = state;
   const rows = [
-    ["모드", s.mode + (s.current !== null ? ` #${s.current}` : "")],
-    ["누적 보상", fmt(s.return)],
-    ["시청 보상", fmt(s.watch_reward)],
-    ["이해한 수", s.n_understood],
-    ["클릭", s.n_clicks],
-    ["목록 시간", `${fmt(s.time_by_mode.LIST, 1)}s`],
-    ["시청 시간", `${fmt(s.time_by_mode.WATCH, 1)}s`],
-    ["전환 시간", `${fmt(s.time_by_mode.TRANSITION, 1)}s`],
-    ["직전 행동", `${s.last_action ?? "-"} (${fmt(s.last_reward, 3)})`],
+    ["지금", { LIST: "목록 보는 중", WATCH: `#${s.current} 보는 중`, TRANSITION: "여닫는 중" }[s.mode]],
+    ["얻은 재미 (점수)", fmt(s.return)],
+    ["본 것에서 얻은 재미", fmt(s.watch_reward)],
+    ["뭔지 알아본 수", s.n_understood],
+    ["열어 본 횟수", s.n_clicks],
+    ["목록을 본 시간", `${fmt(s.time_by_mode.LIST, 1)}초`],
+    ["콘텐츠를 본 시간", `${fmt(s.time_by_mode.WATCH, 1)}초`],
+    ["여닫는 데 쓴 시간", `${fmt(s.time_by_mode.TRANSITION, 1)}초`],
+    ["방금 한 행동", `${s.last_action ?? "-"}`],
   ];
   const table = $("stats");
   table.innerHTML = "";
@@ -686,7 +805,7 @@ function renderStats() {
   for (const [k, v] of Object.entries(s.extra_metrics)) {
     const row = table.insertRow();
     row.className = "ext";
-    row.innerHTML = `<td>${k}</td><td>${typeof v === "number" ? fmt(v) : v}</td>`;
+    row.innerHTML = `<td>${(schema.behaviours && schema.behaviours[k]) || k}</td><td>${typeof v === "number" ? fmt(v) : v}</td>`;
   }
 }
 
@@ -703,8 +822,8 @@ function renderEvents() {
 
 function renderKeys() {
   $("keys").innerHTML = isHuman()
-    ? "직접 플레이: <kbd>↓</kbd>/<kbd>↑</kbd> 누르고 있으면 스크롤 (<kbd>Shift</kbd> 빠르게) · <kbd>1</kbd>~<kbd>4</kbd> 번호 붙은 카드 열기 · <kbd>B</kbd> 목록으로 · <kbd>Space</kbd> 멈춤<br>일시정지 중에는 키 한 번 = 한 스텝"
-    : "<kbd>P</kbd> 재생/일시정지 · <kbd>N</kbd> 한 스텝 · <kbd>R</kbd> 다시 시작 · <kbd>H</kbd> 숨은 값 · 흐린 카드 = 절반 미만으로 보여 아직 파악 안 됨";
+    ? "직접 해 보기: <kbd>↓</kbd>/<kbd>↑</kbd> 누르고 있으면 스크롤 (<kbd>Shift</kbd> 빠르게) · <kbd>1</kbd>~<kbd>4</kbd> 번호 붙은 카드 열기 · <kbd>B</kbd> 닫고 목록으로 · <kbd>Space</kbd> 멈춤<br>일시정지 중에는 키 한 번 = 0.1초"
+    : "<kbd>P</kbd> 재생/일시정지 · <kbd>N</kbd> 0.1초 진행 · <kbd>R</kbd> 다시 시작 · <kbd>H</kbd> 숨은 값 · 흐린 카드 = 절반도 안 보여서 아직 눈에 안 들어온 카드";
   $("dwell-wrap").style.opacity = $("policy").value === "greedy-dwell" ? 1 : 0.4;
 }
 
@@ -772,17 +891,25 @@ $("hidden").addEventListener("change", () => { saveSetup(); render(); });
 $("rho").addEventListener("input", render);
 $("speed").addEventListener("input", () => { $("speed-label").textContent = `${$("speed").value}/초`; saveSetup(); });
 $("policy").addEventListener("change", renderKeys);
-$("defaults").addEventListener("click", () => {
-  const map = fieldsByKey();
-  for (const input of document.querySelectorAll("#settings input[data-key], #settings select[data-key]")) {
-    setInput(input, map[input.dataset.key], map[input.dataset.key].default);
-    markChanged(input, map[input.dataset.key]);
-  }
-});
+$("defaults").addEventListener("click", setAllDefaults);
+$("scenario").addEventListener("change", () => applyScenario($("scenario").value));
+$("compare-run").addEventListener("click", runCompare);
+$("settings").addEventListener("change", () => { $("scenario").value = ""; $("scenario-note").hidden = true; });
+for (const btn of document.querySelectorAll(".step-btn[data-target]")) {
+  btn.addEventListener("click", () => {
+    const input = $(btn.dataset.target);
+    const delta = parseFloat(btn.dataset.delta);
+    const value = Math.max(0, parseFloat(input.value || "0") + delta);
+    input.value = Number.isInteger(delta) ? String(Math.round(value)) : String(Math.round(value * 100) / 100);
+    input.dispatchEvent(new Event("input"));
+    if (btn.dataset.target === "seed") reset();
+  });
+}
 
 // URL parameters (override saved settings): ?policy=greedy&seed=10001&speed=50&hidden=1
 //   &rho=0.6&dwell=0.5&autoplay=1&skip=300&set=ddm.attention=log&set=feed.kappa=0.8
 //   skip = run that many steps right after loading (jump into the episode)
+//   scenario = id of a ready-made situation (webdemo/descriptions.py SCENARIOS)
 function applyUrlParams() {
   const q = new URLSearchParams(location.search);
   if (q.has("policy") && [...$("policy").options].some((o) => o.value === q.get("policy"))) $("policy").value = q.get("policy");
@@ -801,7 +928,7 @@ function applyUrlParams() {
     setInput(input, field, value);
     markChanged(input, field);
   }
-  return { autoplay: q.get("autoplay") === "1", skip: parseInt(q.get("skip") || "0", 10) };
+  return { autoplay: q.get("autoplay") === "1", skip: parseInt(q.get("skip") || "0", 10), scenario: q.get("scenario") };
 }
 
 // Commands from the branch comparison page (scripts/serve_branches.py):
@@ -837,11 +964,18 @@ window.addEventListener("message", async (e) => {
   $("policy").value = "greedy";
   for (const el of document.querySelectorAll(".help[data-help]")) el.tabIndex = 0;
   buildSettings();
+  buildScenarios();
   loadSetup();
   const start = applyUrlParams();
   $("speed-label").textContent = `${$("speed").value}/초`;
-  await reset();
+  if (start.scenario && schema.scenarios.some((sc) => sc.id === start.scenario)) {
+    $("scenario").value = start.scenario;
+    await applyScenario(start.scenario);
+  } else {
+    await reset();
+  }
   if (start.skip > 0 && !isHuman()) await advance(start.skip);
   if (start.autoplay) setPlaying(true);
+  $("compare-changed").innerHTML = changedSettingsText();
   requestAnimationFrame(loop);
 })();

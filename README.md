@@ -91,7 +91,11 @@ python scripts\serve_branches.py --branches feature/value-error origin/feature/a
 - `H` 숨은 값(실제 A·ν·z) 표시, 오른쪽에 전체 목록 지도·상태·누적 보상·사건 기록(늦은 이해 등)
 - 주소로 조건 지정: `http://127.0.0.1:8000/?policy=greedy-dwell&dwell=0.5&set=ddm.attention=log&skip=300&autoplay=1`
 - `serve_branches.py`는 각 브랜치를 `.worktrees/`에 따로 꺼내 실행하므로 브랜치 자체는 바뀌지 않습니다
-- 설정마다 `?`에 마우스를 올리면 뜻이 나옵니다 (설명: `webdemo/descriptions.py`)
+- 설정마다 `?`에 마우스를 올리면 쉬운 설명이 나옵니다 (설명·쉬운 이름·상황 목록: `webdemo/descriptions.py`)
+- **상황 고르기**: "좋은 콘텐츠가 드문 피드", "금방 질리는 콘텐츠", "아까 그거 괜찮았는데" 등을 고르면 설정이 바뀌고,
+  아래 **행동 비교**가 기본 설정과 같은 피드 20개로 돌려 "열자마자 닫은 횟수 3배 ↑"처럼 달라진 행동을 보여 줍니다
+- 비교 페이지(8000)는 위쪽 **탭**으로 브랜치를 바꿔 봅니다 (주소 끝 `#2`처럼 탭 번호 지정 가능)
+- 주소로 바로 열기: `http://127.0.0.1:8001/?scenario=boring_fast` (상황 id는 `descriptions.py` 참고)
 
 #### 다른 PC에서 접속하기 (같은 네트워크)
 

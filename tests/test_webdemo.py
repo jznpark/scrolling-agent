@@ -139,3 +139,32 @@ def test_server_binds_requested_host():
         assert srv.server_address[0] == "127.0.0.1"
     finally:
         srv.server_close()
+
+
+def test_every_setting_has_a_plain_label():
+    from webdemo.descriptions import LABELS
+
+    assert not [f["key"] for s in settings_schema() for f in s["fields"] if f["key"] not in LABELS]
+
+
+def test_scenarios_only_use_known_settings_and_build():
+    from webdemo.descriptions import SCENARIOS
+    from webdemo.server import available_scenarios
+
+    shown = available_scenarios(settings_schema())
+    assert shown[0]["id"] == "base" and len(shown) >= 8
+    for sc in shown:
+        build_config(sc["set"])  # every shown scenario is a valid config
+    # extension scenarios are hidden on a branch without those settings
+    assert len(shown) <= len(SCENARIOS)
+
+
+def test_compare_behaviour_same_lists():
+    from webdemo.server import compare_behaviour
+
+    res = compare_behaviour({"feed.m_lambda": 0.0}, {"name": "greedy", "rho": 0.6}, None, n=3)
+    rows = {r["key"]: r for r in res["rows"]}
+    assert res["n"] == 3 and {"return", "n_clicks", "mean_bout"} <= set(rows)
+    assert rows["mean_bout"]["now"] < rows["mean_bout"]["base"]  # content gets boring faster
+    same = compare_behaviour({}, {"name": "greedy"}, None, n=2)
+    assert all(r["base"] == r["now"] for r in same["rows"])

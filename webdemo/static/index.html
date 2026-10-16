@@ -13,23 +13,38 @@
       <span id="module" class="muted small"></span>
     </div>
     <div class="controls">
-      <button id="open-settings" title="모든 설정">⚙ 설정</button>
-      <label><span class="lt">정책 <span class="help" data-help="policy">?</span></span>
-        <select id="policy"></select></label>
-      <label><span class="lt">ρ <span class="help" data-help="rho">?</span></span>
-        <input id="rho" type="number" step="0.05" value="0.6"></label>
-      <label id="dwell-wrap"><span class="lt">dwell <span class="help" data-help="dwell">?</span></span>
-        <input id="dwell" type="number" step="0.25" value="0.5"></label>
-      <label><span class="lt">seed <span class="help" data-help="seed">?</span></span>
-        <span class="inline"><input id="seed" type="number" value="10000"><button id="seed-random" title="무작위 seed">🎲</button></span></label>
-      <button id="reset" class="primary">다시 시작 (R)</button>
+      <button id="open-settings" class="big" title="모든 설정">⚙ 설정</button>
+      <div class="ctl">
+        <span class="lt">상황 <span class="help" data-help="scenario">?</span></span>
+        <select id="scenario" class="big"></select>
+      </div>
+      <div class="ctl">
+        <span class="lt">누가 조작? <span class="help" data-help="policy">?</span></span>
+        <select id="policy" class="big"></select>
+      </div>
+      <div class="ctl">
+        <span class="lt">볼 만한 기준 ρ <span class="help" data-help="rho">?</span></span>
+        <span class="stepper"><button class="step-btn" data-target="rho" data-delta="-0.1">−</button><input id="rho" type="number" step="0.1" value="0.6"><button class="step-btn" data-target="rho" data-delta="0.1">＋</button></span>
+      </div>
+      <div class="ctl" id="dwell-wrap">
+        <span class="lt">멈춰 보기 dwell <span class="help" data-help="dwell">?</span></span>
+        <span class="stepper"><button class="step-btn" data-target="dwell" data-delta="-0.25">−</button><input id="dwell" type="number" step="0.25" value="0.5"><button class="step-btn" data-target="dwell" data-delta="0.25">＋</button></span>
+      </div>
+      <div class="ctl">
+        <span class="lt">피드 번호 seed <span class="help" data-help="seed">?</span></span>
+        <span class="stepper"><button class="step-btn" data-target="seed" data-delta="-1">−</button><input id="seed" type="number" value="10000"><button class="step-btn" data-target="seed" data-delta="1">＋</button><button id="seed-random" class="step-btn" title="무작위 피드">🎲</button></span>
+      </div>
+      <button id="reset" class="primary big">다시 시작 (R)</button>
       <span class="sep"></span>
-      <button id="play" class="primary">▶ 재생 (P)</button>
-      <button id="step">한 스텝 (N)</button>
-      <label><span class="lt">속도 <span class="help" data-help="speed">?</span></span>
-        <span class="inline"><input id="speed" type="range" min="1" max="200" value="10"><span id="speed-label" class="small"></span></span></label>
-      <label class="check"><input id="hidden" type="checkbox"> 숨은 값 (H) <span class="help" data-help="hidden">?</span></label>
+      <button id="play" class="primary big">▶ 재생 (P)</button>
+      <button id="step" class="big">한 스텝 (N)</button>
+      <div class="ctl">
+        <span class="lt">재생 속도 <span class="help" data-help="speed">?</span></span>
+        <span class="inline"><input id="speed" type="range" min="1" max="200" value="10"><span id="speed-label" class="small"></span></span>
+      </div>
+      <label class="check"><input id="hidden" type="checkbox"> 숨은 값 보기 (H) <span class="help" data-help="hidden">?</span></label>
     </div>
+    <div id="scenario-note" class="scenario-note" hidden></div>
   </header>
 
   <main class="split">
@@ -41,10 +56,10 @@
           <h3>전체 목록</h3>
           <canvas id="minimap"></canvas>
           <div class="legend small">
-            <div><i style="background:var(--known)"></i>이해함</div>
-            <div><i style="background:var(--evidence)"></i>증거 쌓는 중</div>
+            <div><i style="background:var(--known)"></i>알아봄</div>
+            <div><i style="background:var(--evidence)"></i>알아보는 중</div>
             <div><i style="background:var(--watch)"></i>본 시간</div>
-            <div><i class="box"></i>화면</div>
+            <div><i class="box"></i>지금 화면</div>
           </div>
         </div>
       </div>
@@ -52,36 +67,48 @@
     </section>
 
     <section class="half" id="right">
-      <h2>보상률</h2>
+      <h2>재미(보상률)</h2>
       <div class="card">
-        <h3><span id="curve-title">시청 중인 콘텐츠의 보상률</span> <span class="help" data-help="curve">?</span></h3>
+        <h3><span id="curve-title">보고 있는 콘텐츠의 재미</span> <span class="help" data-help="curve">?</span></h3>
         <canvas id="curve"></canvas>
       </div>
       <div class="card">
-        <h3>알고 있는 후보의 지금 보상률 <span class="help" data-help="rates">?</span></h3>
+        <h3>알아본 콘텐츠들의 지금 재미 <span class="help" data-help="rates">?</span></h3>
         <canvas id="rates"></canvas>
       </div>
       <div class="card">
-        <h3>누적 보상 (초록 = 시청 중)</h3>
+        <h3>지금까지 얻은 재미 (초록 = 보는 중)</h3>
         <canvas id="chart"></canvas>
       </div>
       <div class="two">
         <div class="card"><h3>상태</h3><table id="stats"></table></div>
-        <div class="card"><h3>사건</h3><ol id="events"></ol></div>
+        <div class="card"><h3>일어난 일</h3><ol id="events"></ol></div>
       </div>
     </section>
   </main>
 
+  <section class="compare">
+    <div class="compare-head">
+      <h2>설정을 바꾸면 행동이 어떻게 달라지나 <span class="help" data-help="compare">?</span></h2>
+      <label class="check">피드 <select id="compare-n"><option>10</option><option selected>20</option><option>30</option></select>개로</label>
+      <button id="compare-run" class="primary big">행동 비교 실행</button>
+      <span id="compare-status" class="muted small"></span>
+    </div>
+    <div id="compare-changed" class="small"></div>
+    <div id="compare-summary" class="compare-summary"></div>
+    <table id="compare-table"></table>
+  </section>
+
   <aside id="drawer" class="drawer" hidden>
     <div class="drawer-head">
-      <b>설정</b>
+      <b>모든 설정</b>
       <button id="defaults" class="small-btn">기본값으로</button>
       <button id="close-settings" class="small-btn">닫기 ✕</button>
     </div>
-    <p class="muted small">바꾼 값만 적용됩니다(파란색). <span class="tag ext">ext</span> 확장 ·
-      <span class="tag draft">draft</span> 초안 · <span class="tag tbd">TBD</span> 팀 임시값 · <b>?</b>에 마우스를 올리면 설명</p>
+    <p class="muted small">바꾼 값만 적용됩니다(파란색). <b>?</b>에 마우스를 올리면 쉬운 설명이 나옵니다.
+      <span class="tag ext">ext</span> 확장 기능 · <span class="tag draft">draft</span> 교수님 초안 값 · <span class="tag tbd">TBD</span> 팀 임시값</p>
     <div id="settings"></div>
-    <button id="apply" class="primary wide">적용하고 다시 시작</button>
+    <button id="apply" class="primary wide big">적용하고 다시 시작</button>
   </aside>
 
   <div id="tooltip" class="tooltip" hidden></div>

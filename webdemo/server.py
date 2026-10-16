@@ -6,6 +6,7 @@ environment per browser session and answers small JSON requests:
     GET  /api/schema    settings (from the Config dataclasses), policies, branch label
     POST /api/reset     {session, seed, overrides: {"ddm.noise": 0.3}, policy: {...}} -> state
     POST /api/step      {session, n, action?} -> state after up to n steps
+    POST /api/compare   {overrides, policy, n} -> behaviour with default vs these settings
     GET  /, /static/*   the page (webdemo/static)
 
 The model code is whatever `scrolling_agent` package is first on sys.path, so the
@@ -20,6 +21,7 @@ import inspect
 import json
 import re
 import threading
+import time
 from collections import deque
 from dataclasses import fields, replace
 from http import HTTPStatus
@@ -29,7 +31,7 @@ from typing import Any
 
 import numpy as np
 
-from .descriptions import DESCRIPTIONS, UI_HELP
+from .descriptions import BEHAVIOURS, DESCRIPTIONS, LABELS, SCENARIOS, UI_HELP
 
 STATIC = Path(__file__).parent / "static"
 CONTENT_TYPES = {".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml"}
@@ -89,6 +91,7 @@ def settings_schema() -> list[dict[str, Any]]:
                 "choices": list(choices) if choices else None,
                 "comment": comment,
                 "help": DESCRIPTIONS.get(f"{section.name}.{f.name}", comment),
+                "label": LABELS.get(f"{section.name}.{f.name}", f.name),
                 "tag": tag[1] if tag else (default_tag[1] if default_tag else ""),
             })
         sections.append({"name": section.name, "fields": items})
@@ -119,6 +122,33 @@ def build_config(overrides: dict[str, Any]):
             value = float(value)
         setattr(cfg, section, replace(current, **{name: value}))
     return cfg
+
+
+def available_scenarios(sections: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Situations whose settings all exist in the running branch."""
+    keys = {f["key"] for s in sections for f in s["fields"]}
+    return [sc for sc in SCENARIOS if set(sc["set"]) <= keys]
+
+
+MAX_COMPARE_EPISODES = 30
+
+
+def compare_behaviour(overrides: dict[str, Any], policy: dict[str, Any], runs_dir: Path | None,
+                      n: int = 10, seed_start: int = 10_000) -> dict[str, Any]:
+    """Average behaviour over the same n lists with default settings and with `overrides`."""
+    from scrolling_agent import ScrollingEnv
+    from scrolling_agent.evaluation import evaluate, summarize
+
+    n = max(1, min(int(n), MAX_COMPARE_EPISODES))
+    seeds = range(seed_start, seed_start + n)
+    t0 = time.perf_counter()
+    stats = {}
+    for name, ov in (("base", {}), ("now", overrides)):
+        env = ScrollingEnv(build_config(ov))
+        stats[name] = summarize(evaluate(env, make_policy(policy, runs_dir), seeds))
+    rows = [dict(b, base=round(stats["base"][b["key"]][0], 3), now=round(stats["now"][b["key"]][0], 3))
+            for b in BEHAVIOURS if b["key"] in stats["base"]]
+    return {"n": n, "seeds": [seeds[0], seeds[-1]], "seconds": round(time.perf_counter() - t0, 1), "rows": rows}
 
 
 # --- policies ------------------------------------------------------------------------
@@ -171,13 +201,13 @@ def action_labels(env) -> list[str]:
     labels = [""] * env.n_actions
     speeds = env.cfg.screen.speeds
     for k, a in enumerate(env.down_actions):
-        labels[a] = f"down({speeds[k]:g})"
+        labels[a] = "아래로" + (f" ({speeds[k]:g})" if len(speeds) > 1 else "")
     for k, a in enumerate(env.up_actions):
-        labels[a] = f"up({speeds[k]:g})"
-    labels[env.stay_action] = "stay"
+        labels[a] = "위로" + (f" ({speeds[k]:g})" if len(speeds) > 1 else "")
+    labels[env.stay_action] = "멈춤"
     for j, a in enumerate(env.slot_actions):
-        labels[a] = f"click slot {j + 1}"
-    labels[env.back_action] = "back"
+        labels[a] = f"{j + 1}번 카드 열기"
+    labels[env.back_action] = "닫고 목록으로"
     return labels
 
 
@@ -221,14 +251,14 @@ class Session:
             understood_before = env.understood.copy()
             a = action if action is not None else (self.policy(env) if self.policy else env.stay_action)
             if not 0 <= a < env.n_actions or not env.action_masks()[a]:
-                self._event("invalid", f"{self.labels[a] if 0 <= a < env.n_actions else a} not allowed -> stay")
+                self._event("invalid", f"지금은 '{self.labels[a] if 0 <= a < env.n_actions else a}'을(를) 할 수 없어 멈춤")
                 a = env.stay_action
             if mode_before == LIST and a in env.slot_actions:
                 item = int(env.visible_slots()[env.slot_actions.index(a)])
                 self.n_clicks += 1
-                self._event("click", f"click #{item}" + (" (revisit)" if env.w[item] > 0 else ""))
+                self._event("click", f"#{item} 열기" + (" (다시 보기)" if env.w[item] > 0 else ""))
             if mode_before == WATCH and a == env.back_action:
-                self._event("back", f"back from #{current_before} after w = {env.w[current_before]:.1f}s")
+                self._event("back", f"#{current_before} 닫음 ({env.w[current_before]:.1f}초 봄)")
             _, reward, *_ = env.step(a)
             if env.current is not None:
                 self.last_watched = int(env.current)
@@ -236,8 +266,8 @@ class Session:
             self.last_action, self.last_reward = a, float(reward)
             on_screen = set(visible_items(env.scroll, env.n_items, env.screen_h, env.cfg.screen.visible_fraction))
             for i in np.flatnonzero(env.understood & ~understood_before):
-                where = "" if i in on_screen else " (off screen)"
-                self._event("understood" if not where else "late", f"understood #{i}{where}")
+                where = "" if i in on_screen else " — 지나간 뒤에 뒤늦게!"
+                self._event("understood" if not where else "late", f"#{i} 뭔지 알아봄{where}")
             history.append([round(env.step_count * self.cfg.time.dt, 2), round(self.total, 4), int(env.mode)])
         return history
 
@@ -336,11 +366,14 @@ class DemoHandler(BaseHTTPRequestHandler):
         if path == "/api/schema":
             from scrolling_agent import config as config_module
 
+            sections = settings_schema()
             self._json({
                 "label": self.server.label,
                 "module": str(Path(config_module.__file__).resolve().parent),
-                "sections": settings_schema(),
+                "sections": sections,
+                "scenarios": available_scenarios(sections),
                 "ui_help": UI_HELP,
+                "behaviours": {b["key"]: b["label"] for b in BEHAVIOURS},
                 "policies": list_policies(self.server.runs_dir),
             })
             return
@@ -369,6 +402,9 @@ class DemoHandler(BaseHTTPRequestHandler):
                     self.server.sessions[sid] = session
                 with session.lock:
                     self._json(session.state([]))
+            elif self.path == "/api/compare":
+                self._json(compare_behaviour(body.get("overrides", {}), body.get("policy", {"name": "greedy"}),
+                                             self.server.runs_dir, body.get("n", 10), int(body.get("seed", 10_000))))
             elif self.path == "/api/step":
                 session = self.server.sessions.get(sid)
                 if session is None:
