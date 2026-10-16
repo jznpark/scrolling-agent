@@ -251,6 +251,8 @@ class Session:
                 break
             mode_before, current_before = env.mode, env.current
             understood_before = env.understood.copy()
+            vf = env.cfg.screen.visible_fraction
+            on_screen_before = set(visible_items(env.scroll, env.n_items, env.screen_h, vf)) if env.mode == LIST else set()
             a = action if action is not None else (self.policy(env) if self.policy else env.stay_action)
             if not 0 <= a < env.n_actions or not env.action_masks()[a]:
                 self._event("invalid", f"지금은 '{self.labels[a] if 0 <= a < env.n_actions else a}'을(를) 할 수 없어 멈춤")
@@ -269,9 +271,13 @@ class Session:
                 self.last_watched = int(env.current)
             self.total += reward
             self.last_action, self.last_reward = a, float(reward)
-            on_screen = set(visible_items(env.scroll, env.n_items, env.screen_h, env.cfg.screen.visible_fraction))
+            # "late" = understood without being on screen. Branches with residual processing record it
+            # exactly; otherwise an item visible at the start or end of the step counts as on screen.
+            off_flags = getattr(env, "understood_off_screen", None)
+            on_screen = on_screen_before | set(visible_items(env.scroll, env.n_items, env.screen_h, vf))
             for i in np.flatnonzero(env.understood & ~understood_before):
-                where = "" if i in on_screen else " — 지나간 뒤에 뒤늦게!"
+                late = bool(off_flags[i]) if off_flags is not None else i not in on_screen
+                where = " — 지나간 뒤에 뒤늦게!" if late else ""
                 if where:
                     self.late_items.add(int(i))
                 self._event("understood" if not where else "late", f"#{i} 뭔지 알아봄{where}")

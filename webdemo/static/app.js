@@ -4,7 +4,7 @@
 
 const $ = (id) => document.getElementById(id);
 const SESSION = (crypto.randomUUID ? crypto.randomUUID() : String(Math.random())).slice(0, 36);
-const STORE_KEY = `scrolling-demo:${location.port}`;
+const STORE_KEY = `scrolling-demo:${location.port}${location.pathname}`;  // per tab (/b/<k>/) on the comparison page
 const COMPACT = new URLSearchParams(location.search).get("compact") === "1";
 const RHO_POLICIES = ["scrollfirst", "greedy", "greedy-dwell"];
 
