@@ -48,6 +48,17 @@
     <div id="scenario-note" class="scenario-note" hidden></div>
   </header>
 
+  <section id="break-reminder" class="break-reminder" aria-labelledby="reminder-title" hidden>
+    <div aria-live="polite" aria-atomic="true">
+      <h2 id="reminder-title">잠깐, 계속 보시겠어요?</h2>
+      <p id="reminder-message"></p>
+    </div>
+    <div id="reminder-actions" class="reminder-actions">
+      <button id="reminder-stop" class="primary big">이번 세션 그만 보기</button>
+      <button id="reminder-continue" class="big">계속 보기</button>
+    </div>
+  </section>
+
   <main class="split">
     <section class="half" id="left">
       <h2>휴대폰 화면 <span id="phone-mode" class="pill"></span></h2>
@@ -97,6 +108,8 @@
       <span id="compare-status" class="muted small"></span>
     </div>
     <div id="compare-changed" class="small"></div>
+    <p id="compare-reminder-note" class="small" hidden>이 표는 알림에 응답하지 않고 세션 끝까지 실행한 정책 결과입니다.
+      알림으로 멈추거나 그만 본 효과는 현재 화면의 상태 표에서 확인하세요.</p>
     <div id="compare-summary" class="compare-summary"></div>
     <table id="compare-table"></table>
   </section>

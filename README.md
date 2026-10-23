@@ -97,6 +97,8 @@ python scripts\serve_branches.py --branches feature/value-error origin/feature/a
 - 비교 페이지(8000)는 위쪽 **탭**으로 브랜치를 바꿔 봅니다 (주소 끝 `#2`처럼 탭 번호 지정 가능)
 - **늦은 깨달음 보기**: '늦은 깨달음' 탭 → 상황 '아까 그거 괜찮았는데' → '중요한 순간에 멈춤' 체크 → ▶. 지나간 카드를 뒤늦게 알아챈 순간과 그 카드로 되돌아와 여는 순간에 멈추고, 그 카드에는 ★가 붙습니다
 - 주소로 바로 열기: `http://127.0.0.1:8001/?scenario=boring_fast` (상황 id는 `descriptions.py` 참고)
+- **그만 보기 알림 [확장, 기본 꺼짐]**: 상황 "30초 뒤 그만 보기 알림"에서 계속 보기·종료를 선택할 수 있습니다.
+  설정·재현 방법·검증 결과는 [확장 설명](docs/extensions/break-reminder.md)을 참고하세요.
 
 #### 다른 PC에서 접속하기
 
