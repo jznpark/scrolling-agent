@@ -9,6 +9,8 @@ import math
 
 # Short everyday name shown next to each setting.
 LABELS: dict[str, str] = {
+    "preview.enabled": "자동 미리보기",
+    "preview.seconds": "미리보기 시간",
     "time.session_seconds": "전체 사용 시간",
     "time.dt": "한 번 판단하는 간격",
     "time.step_cost": "시간이 아까운 정도",
@@ -43,6 +45,10 @@ LABELS: dict[str, str] = {
 
 # "?" explanations: what it is in daily life, and what happens when you raise it.
 DESCRIPTIONS: dict[str, str] = {
+    "preview.enabled": "켜면 넘기거나 기다릴 때, 화면에서 알아본 카드 중 아직 보지 않은 것을 자동으로 잠깐 엽니다. "
+                       "직접 여는 행동이 우선이며, 같은 카드는 한 번만 자동 미리보기합니다.",
+    "preview.seconds": "자동 미리보기로 실제 시청할 시간(초)입니다. 끝나면 자동으로 목록으로 돌아옵니다. "
+                       "여닫는 시간은 별도로 들고, 한 번 판단하는 간격에 맞춰 올림합니다.",
     # time
     "time.session_seconds": "앱을 쓰는 전체 시간(초)입니다. 예를 들어 120이면 \"2분만 볼게\" 하고 켠 상황입니다. "
                             "무엇을 하든 시간은 흘러갑니다.",
@@ -125,6 +131,7 @@ UI_HELP: dict[str, str] = {
 
 # Behaviour measures in everyday words (compare panel): key, label, unit, how to read it.
 BEHAVIOURS: list[dict[str, str]] = [
+    {"key": "n_auto_previews", "label": "자동 미리보기 횟수", "unit": "번", "hint": "설정을 켜서 자동으로 연 횟수"},
     {"key": "return", "label": "얻은 재미 (점수)", "unit": "", "hint": "많을수록 시간을 잘 쓴 것"},
     {"key": "time_watch", "label": "콘텐츠를 본 시간", "unit": "초", "hint": "120초 중 실제로 본 시간"},
     {"key": "time_stay_list", "label": "목록에서 멈춰서 살펴본 시간", "unit": "초", "hint": "스크롤을 멈추고 있던 시간 (목록 끝에 닿아 기다린 시간 포함)"},
@@ -164,6 +171,10 @@ SCENARIOS: list[dict] = [
     {"id": "big_screen", "name": "한 화면에 카드가 많은 앱", "set": {"screen.cards_per_screen": 5.0, "screen.speeds": [0.3]},
      "expect": "같은 속도로 넘겨도 여러 장을 동시에 볼 수 있어, 알아보는 개수와 점수가 조금 늘어납니다."},
     # extension branches (shown only when the setting exists)
+    {"id": "auto_preview", "name": "알아본 카드 자동 미리보기 [확장]",
+     "set": {"preview.enabled": True}, "policy": "greedy",
+     "expect": "넘기거나 기다리려던 카드가 1초 자동 재생된 뒤 목록으로 돌아옵니다. "
+               "자동 미리보기 횟수와 실제 시청 시간을 비교해 보세요."},
     {"id": "misjudge", "name": "썸네일만 보고 착각함 [확장]", "set": {"estimate.sigma_est": 0.6},
      "expect": "기대하고 열었다가 실망해서 바로 닫는 일이 늘어납니다. '열자마자 닫은 횟수'와 '실제보다 좋아 보여서 연 횟수'를 보세요."},
     {"id": "misjudge_slow", "name": "착각을 늦게 깨달음 [확장]", "set": {"estimate.sigma_est": 0.6, "estimate.tau_learn": 3.0},

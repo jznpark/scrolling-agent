@@ -505,8 +505,10 @@ function drawPhone() {
   ctx.globalAlpha = 1;
 
   const pill = $("phone-mode");
-  pill.textContent = state.mode === "WATCH" ? `#${state.current} 보는 중` : state.mode === "TRANSITION" ? "여닫는 중" : "목록 보는 중";
-  pill.className = `pill ${state.mode}`;
+  pill.textContent = state.auto_preview
+    ? `#${state.auto_preview.item} 자동 미리보기 (${fmt(state.auto_preview.seconds, 1)}초)`
+    : state.mode === "WATCH" ? `#${state.current} 보는 중` : state.mode === "TRANSITION" ? "여닫는 중" : "목록 보는 중";
+  pill.className = `pill ${state.auto_preview ? "PREVIEW" : state.mode}`;
 }
 
 function drawFeed(ctx, w, top, height) {

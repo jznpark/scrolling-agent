@@ -1,6 +1,6 @@
 """Scrolling agent — DDM + PPO model of time allocation in a scrolling feed."""
 
-from .config import Config, DDMConfig, FeedConfig, ScreenConfig, TimeConfig, TrainConfig
+from .config import Config, DDMConfig, FeedConfig, PreviewConfig, ScreenConfig, TimeConfig, TrainConfig
 from .env import ScrollingEnv
 from .feed import Feed, feed_stats, generate_feed, reorder_feed, sample_types
 
@@ -9,6 +9,7 @@ __all__ = [
     "DDMConfig",
     "Feed",
     "FeedConfig",
+    "PreviewConfig",
     "ScreenConfig",
     "ScrollingEnv",
     "TimeConfig",
