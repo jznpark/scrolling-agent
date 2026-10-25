@@ -39,6 +39,9 @@ LABELS: dict[str, str] = {
     "estimate.sigma_est": "썸네일만 보고 착각하는 정도",
     "estimate.noise_lambda": "얼마나 오래 재밌을지도 착각",
     "estimate.tau_learn": "보면서 착각을 깨닫는 시간",
+    "ads.every": "몇 개마다 광고가 끼나",
+    "ads.disclosed": "광고라고 표시해 주나",
+    "ads.m_nu_ad": "광고임을 알아채는 속도",
 }
 
 # "?" explanations: what it is in daily life, and what happens when you raise it.
@@ -93,6 +96,13 @@ DESCRIPTIONS: dict[str, str] = {
     "estimate.noise_lambda": "\"이건 오래 재밌겠다/금방 질리겠다\"도 착각하는지입니다. 끄면 재미의 크기만 착각합니다.",
     "estimate.tau_learn": "콘텐츠를 열어 보면서 착각을 깨닫기까지 걸리는 시간(초)입니다. 0이면 열자마자 바로 진짜를 압니다. "
                           "길수록 별로인 걸 한동안 계속 보거나, 좋은 걸 잘못 판단해 일찍 닫습니다.",
+    # ads (ad-slots branch)
+    "ads.every": "피드에서 몇 개마다 한 장씩 광고가 끼는지입니다. 5면 5번째마다 광고(전체의 20%)입니다. "
+                 "광고는 봐도 재미가 없어서, 그 자리만큼 볼거리가 줄어듭니다. 0이면 광고가 없습니다.",
+    "ads.disclosed": "광고에 '광고' 표시가 붙어 있는지입니다. 켜면 보자마자 광고인 줄 알아 광고 앞에 멈추지 않습니다. "
+                     "모르는 카드 앞에서 멈춰 보는 정책(greedy-dwell)일수록 차이가 큽니다.",
+    "ads.m_nu_ad": "표시가 없을 때 \"아 이거 광고구나\" 하고 알아채는 속도입니다. 낮출수록 광고인지 한참 들여다보게 되어, "
+                   "멈춰 살펴보는 정책이 광고 앞에서 시간을 더 흘립니다.",
 }
 
 # Controls of the page itself.
@@ -140,6 +150,8 @@ BEHAVIOURS: list[dict[str, str]] = [
     {"key": "click_log_error", "label": "열 때의 착각 크기", "unit": "", "hint": "0보다 크면 실제보다 좋게 착각"},
     {"key": "n_overestimated_clicks", "label": "실제보다 좋아 보여서 연 횟수", "unit": "번", "hint": "착각"},
     {"key": "mean_unread_on_screen", "label": "화면 속 아직 모르는 카드 수", "unit": "장", "hint": "붐비는 정도"},
+    {"key": "n_ad_clicks", "label": "광고를 열어 본 횟수", "unit": "번", "hint": "광고는 열어도 재미가 없음"},
+    {"key": "time_watch_ads", "label": "광고를 보고 있던 시간", "unit": "초", "hint": "광고에 뺏긴 시청 시간"},
 ]
 
 # Ready-made situations: settings to change, suggested policy, what to look for.
@@ -177,4 +189,12 @@ SCENARIOS: list[dict] = [
     {"id": "crowded_big", "name": "카드 많은 화면 + 헷갈림 [확장]",
      "set": {"ddm.attention": "log", "screen.cards_per_screen": 5.0, "screen.speeds": [0.3]},
      "expect": "카드가 많아도 한꺼번에 알아보기 어려워서, 큰 화면의 이점이 대부분 사라집니다."},
+    {"id": "ads", "name": "피드 5개마다 몰래 광고 [확장]", "set": {"ads.every": 5, "ads.m_nu_ad": -1.0},
+     "policy": "greedy-dwell", "dwell": 0.5,
+     "expect": "볼거리의 20%가 광고로 바뀌고, 광고인지 몰라 광고 앞에서도 멈춰 살펴봅니다. "
+               "'목록에서 멈춰서 살펴본 시간'이 늘고 얻는 재미가 10% 정도 줄어듭니다."},
+    {"id": "ads_disclosed", "name": "광고라고 표시해 주는 앱 [확장]",
+     "set": {"ads.every": 5, "ads.disclosed": True}, "policy": "greedy-dwell", "dwell": 0.5,
+     "expect": "광고인 줄 바로 알아 광고 앞에 멈추지 않으니 몰래 광고보다 손해가 절반쯤으로 줄지만, "
+               "볼거리 20%가 사라진 손해는 그대로 남습니다. 위의 몰래 광고와 비교해 보세요."},
 ]

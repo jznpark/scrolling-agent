@@ -282,10 +282,14 @@ class Session:
         A_known, lam_known = _revealed(env)
         rate = A_known * np.exp(-lam_known * env.w)
         B = self.cfg.ddm.threshold
+        ads = getattr(f, "ads", None)  # ad-slots branch only
+        if ads is None:
+            ads = np.zeros(env.n_items, dtype=bool)
         items = [{
             "id": i,
             "seen": bool(env.exposure[i] > 0),
             "understood": bool(env.understood[i]),
+            "ad": bool(ads[i]),
             "late": i in self.late_items,
             "x": round(float(env.x[i] / B), 4),
             "exposure": round(float(env.exposure[i]), 2),

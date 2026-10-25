@@ -38,7 +38,7 @@ import numpy as np
 from gymnasium import spaces
 
 from .config import Config
-from .feed import Feed, generate_feed
+from .feed import Feed, generate_feed, insert_ads
 
 LIST, WATCH, TRANSITION = 0, 1, 2
 MODE_NAMES = ("LIST", "WATCH", "TRANSITION")
@@ -117,6 +117,9 @@ class ScrollingEnv(gym.Env):
         feed = (options or {}).get("feed") or self._fixed_feed
         if feed is None:
             feed = generate_feed(self.cfg.feed, self.n_items, self._rng_feed)
+            # ad-slots extension; a feed passed in by the caller is used as-is
+            if self.cfg.ads.every > 0:
+                feed = insert_ads(feed, self.cfg.ads.every, self.cfg.ads.m_nu_ad)
         elif feed.n != self.n_items:
             raise ValueError(f"feed has {feed.n} items, config expects {self.n_items}")
         self.feed = feed
@@ -129,8 +132,12 @@ class ScrollingEnv(gym.Env):
         self._transition_to = LIST
         self.x = np.zeros(n)
         self.understood = np.zeros(n, dtype=bool)
+        if self.cfg.ads.disclosed:
+            self.understood[self.feed.ads] = True  # labelled ads are known from the start
         self.exposure = np.zeros(n)
         self.w = np.zeros(n)
+        self._ad_clicks = 0
+        self._ad_watch_seconds = 0.0
         self.step_count = 0
         self.time_by_mode = {name: 0.0 for name in MODE_NAMES}
         self.watch_reward_total = 0.0
@@ -147,6 +154,7 @@ class ScrollingEnv(gym.Env):
 
         if self.mode == LIST and action in self.slot_actions:
             self.current = int(self.visible_slots()[self.slot_actions.index(action)])
+            self._ad_clicks += int(self.feed.ads[self.current])
             self._start_transition(WATCH)
         elif self.mode == WATCH and action == self.back_action:
             self._start_transition(LIST)
@@ -166,6 +174,7 @@ class ScrollingEnv(gym.Env):
             self.w[i] += dt
             self.watch_reward_total += reward_watch
             self.time_by_mode["WATCH"] += dt
+            self._ad_watch_seconds += dt * int(self.feed.ads[i])
         if self.mode == LIST:
             self.current = None
 
@@ -239,8 +248,12 @@ class ScrollingEnv(gym.Env):
         return np.where(self.understood, self.feed.A, 0.0), np.where(self.understood, self.feed.lam, 0.0)
 
     def extra_metrics(self) -> dict[str, float]:
-        """Episode counters of optional model extensions (empty in the MVP)."""
-        return {}
+        """Episode counters of optional model extensions."""
+        return {
+            "n_ads": int(self.feed.ads.sum()),
+            "n_ad_clicks": self._ad_clicks,
+            "time_watch_ads": self._ad_watch_seconds,
+        }
 
     def _obs(self) -> np.ndarray:
         n, H, B = self.n_items, self.screen_h, self.cfg.ddm.threshold

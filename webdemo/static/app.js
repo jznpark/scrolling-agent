@@ -560,9 +560,22 @@ function drawFeed(ctx, w, top, height) {
       ctx.fill();
       text(ctx, "★ 뒤늦게 알아챔", tx + tw - 55, ty + 17.5, { size: 11, weight: 700, color: "#111", align: "center" });
     }
+    const knownAd = it.ad && (it.understood || showHidden);  // ads reveal themselves once understood
+    if (knownAd) {
+      ctx.fillStyle = "#f2c14e";
+      ctx.beginPath();
+      ctx.roundRect(tx + tw - 40, ty + th - 26, 34, 20, 6);
+      ctx.fill();
+      text(ctx, "AD", tx + tw - 23, ty + th - 15.5, { size: 11, weight: 700, color: "#111", align: "center" });
+    }
     if (it.understood) {
-      text(ctx, "알아봄", tx, ly, { size: 12, weight: 700, color: css("--known") });
-      text(ctx, `지금 재미 ${fmt(it.rate)}` + (it.w > 0 ? ` · ${fmt(it.w, 1)}초 봄` : ""), tx + 48, ly, { size: 12 });
+      if (it.ad) {
+        text(ctx, "광고", tx, ly, { size: 12, weight: 700, color: "#f2c14e" });
+        text(ctx, "봐도 재미 없음" + (it.w > 0 ? ` · ${fmt(it.w, 1)}초 봄` : ""), tx + 36, ly, { size: 12, color: css("--muted") });
+      } else {
+        text(ctx, "알아봄", tx, ly, { size: 12, weight: 700, color: css("--known") });
+        text(ctx, `지금 재미 ${fmt(it.rate)}` + (it.w > 0 ? ` · ${fmt(it.w, 1)}초 봄` : ""), tx + 48, ly, { size: 12 });
+      }
     } else {
       text(ctx, it.seen ? `알아보는 중 ${Math.round(Math.max(0, it.x) * 100)}% · ${fmt(it.exposure, 1)}초 봄` : "아직 안 봄", tx, ly,
         { size: 12, color: css("--muted") });
@@ -571,7 +584,7 @@ function drawFeed(ctx, w, top, height) {
       const differs = it.understood && (Math.abs(it.A - it.hidden.A) > 1e-6 || Math.abs(it.lam - it.hidden.lam) > 1e-6);
       const hidden = it.understood
         ? (differs ? `착각! 실제 지금 재미 ${fmt(it.hidden.rate)}` : "")
-        : `실제: 재미 ${fmt(it.hidden.A)} · 알아보기 쉬움 ${fmt(it.hidden.nu)}${it.hidden.z ? " · 좋은 콘텐츠" : ""}`;
+        : `실제: 재미 ${fmt(it.hidden.A)} · 알아보기 쉬움 ${fmt(it.hidden.nu)}${it.hidden.z ? " · 좋은 콘텐츠" : ""}${it.ad ? " · 광고" : ""}`;
       if (hidden) text(ctx, hidden, tx, ly + 17, { size: 11, italic: true,
         color: differs ? css("--current") : it.hidden.z ? css("--z1") : css("--hidden") });
     }
@@ -595,7 +608,7 @@ function drawPlayer(ctx, w, top, height) {
   ctx.lineTo(cx - 13, cy + 20);
   ctx.closePath();
   ctx.fill();
-  text(ctx, `#${it.id}`, cx, cy + 72, { size: 20, weight: 700, color: "#fff", align: "center" });
+  text(ctx, `#${it.id}` + (it.ad ? " · 광고" : ""), cx, cy + 72, { size: 20, weight: 700, color: it.ad ? "#f2c14e" : "#fff", align: "center" });
   text(ctx, `본 시간 ${fmt(it.w, 1)}초`, cx, cy + 100, { size: 13, color: "#c9cdd4", align: "center" });
   // progress line at the bottom of the video
   const px = 16, py = top + height - 40, pw = w - 32;

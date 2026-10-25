@@ -78,11 +78,27 @@ class FeedConfig:
 
 
 @dataclass
+class AdsConfig:
+    """Sponsored cards in the feed (extension). Off by default (`every = 0`).
+
+    Every `every`-th card of a generated feed is replaced by an ad: it gives no
+    watch reward (A = 0) and carries no latent type. The agent still has to
+    understand it from the thumbnail (drift exp(m_nu_ad)) unless `disclosed`
+    marks ads as known from the first sight, like a visible "sponsored" label.
+    """
+
+    every: int = 0                      # [ext] every k-th card is an ad; 0 = no ads (MVP)
+    disclosed: bool = False             # [ext] ads are labelled: known as ads at first sight
+    m_nu_ad: float = 0.0                # [ext] log drift of ads ("it's an ad" realisation speed)
+
+
+@dataclass
 class Config:
     time: TimeConfig = field(default_factory=TimeConfig)
     screen: ScreenConfig = field(default_factory=ScreenConfig)
     ddm: DDMConfig = field(default_factory=DDMConfig)
     feed: FeedConfig = field(default_factory=FeedConfig)
+    ads: AdsConfig = field(default_factory=AdsConfig)
 
 
 def config_from_dict(data: dict) -> Config:
