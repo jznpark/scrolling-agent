@@ -511,15 +511,20 @@ function drawPhone() {
 
 function drawFeed(ctx, w, top, height) {
   const H = state.screen_h;
+  const C = state.columns || 1;            // shopping grid extension: cards per row
+  const narrow = C > 1;
   const pitch = height / H;
   const showHidden = $("hidden").checked;
+  const nRows = Math.ceil(state.n_items / C);
   const first = Math.max(0, Math.floor(state.scroll));
-  const last = Math.min(state.n_items - 1, Math.ceil(state.scroll + H));
-  for (let i = first; i <= last; i++) {
+  const last = Math.min(nRows - 1, Math.ceil(state.scroll + H));
+  const gap = 8, colW = (w - 20 - gap * (C - 1)) / C;
+  for (let k = first * C; k < Math.min(state.n_items, (last + 1) * C); k++) {
+    const i = k, row = Math.floor(i / C), col = i % C;
     const it = state.items[i];
-    const y = top + (i - state.scroll) * pitch;
+    const y = top + (row - state.scroll) * pitch;
     const slot = state.slots.indexOf(i);
-    const x0 = 10, cw = w - 20, ch = pitch - 10, cy = y + 5;
+    const x0 = 10 + col * (colW + gap), cw = colW, ch = pitch - 10, cy = y + 5;
     ctx.globalAlpha = slot >= 0 ? 1 : 0.45;   // less than half on screen: not being processed
     ctx.fillStyle = it.understood ? css("--card-known") : css("--card");
     ctx.strokeStyle = css("--border");
@@ -554,13 +559,20 @@ function drawFeed(ctx, w, top, height) {
 
     const ly = by + bh + Math.max(12, (cy + ch - by - bh) * 0.32);
     if (it.late) {
+      const bw = narrow ? 30 : 98;
       ctx.fillStyle = css("--late");
       ctx.beginPath();
-      ctx.roundRect(tx + tw - 104, ty + 6, 98, 22, 11);
+      ctx.roundRect(tx + tw - bw - 6, ty + 6, bw, 22, 11);
       ctx.fill();
-      text(ctx, "★ 뒤늦게 알아챔", tx + tw - 55, ty + 17.5, { size: 11, weight: 700, color: "#111", align: "center" });
+      text(ctx, narrow ? "★" : "★ 뒤늦게 알아챔", tx + tw - bw / 2 - 6, ty + 17.5, { size: 11, weight: 700, color: "#111", align: "center" });
     }
-    if (it.understood) {
+    if (narrow) {  // half-width card: shorter labels
+      if (it.understood) {
+        text(ctx, `알아봄 · 재미 ${fmt(it.rate)}`, tx, ly, { size: 11, weight: 700, color: css("--known") });
+      } else {
+        text(ctx, it.seen ? `알아보는 중 ${Math.round(Math.max(0, it.x) * 100)}%` : "아직 안 봄", tx, ly, { size: 11, color: css("--muted") });
+      }
+    } else if (it.understood) {
       text(ctx, "알아봄", tx, ly, { size: 12, weight: 700, color: css("--known") });
       text(ctx, `지금 재미 ${fmt(it.rate)}` + (it.w > 0 ? ` · ${fmt(it.w, 1)}초 봄` : ""), tx + 48, ly, { size: 12 });
     } else {
@@ -571,6 +583,7 @@ function drawFeed(ctx, w, top, height) {
       const differs = it.understood && (Math.abs(it.A - it.hidden.A) > 1e-6 || Math.abs(it.lam - it.hidden.lam) > 1e-6);
       const hidden = it.understood
         ? (differs ? `착각! 실제 지금 재미 ${fmt(it.hidden.rate)}` : "")
+        : narrow ? `실제 재미 ${fmt(it.hidden.A)}${it.hidden.z ? " · 좋음" : ""}`
         : `실제: 재미 ${fmt(it.hidden.A)} · 알아보기 쉬움 ${fmt(it.hidden.nu)}${it.hidden.z ? " · 좋은 콘텐츠" : ""}`;
       if (hidden) text(ctx, hidden, tx, ly + 17, { size: 11, italic: true,
         color: differs ? css("--current") : it.hidden.z ? css("--z1") : css("--hidden") });
@@ -610,34 +623,37 @@ function drawMinimap() {
   const { ctx, w, h } = fitCanvas($("minimap"));
   ctx.clearRect(0, 0, w, h);
   if (!state) return;
+  const C = state.columns || 1;            // shopping grid extension: one band per row, C cells
   const n = state.n_items;
-  const rh = h / n;
+  const rh = h / Math.ceil(n / C);
+  const cw = w / C;
   const showHidden = $("hidden").checked;
   const maxRate = Math.max(0.5, ...state.items.map((it) => it.rate));
   for (const it of state.items) {
-    const y = it.id * rh, hh = Math.max(1, rh - 0.5);
+    const x = (it.id % C) * cw, y = Math.floor(it.id / C) * rh, hh = Math.max(1, rh - 0.5);
+    const ww = C > 1 ? cw - 1 : cw;
     ctx.fillStyle = css("--unseen");
-    ctx.fillRect(0, y, w, hh);
+    ctx.fillRect(x, y, ww, hh);
     if (it.understood) {
       ctx.fillStyle = css("--known");
       ctx.globalAlpha = 0.25 + 0.75 * Math.max(0, it.rate) / maxRate;
-      ctx.fillRect(0, y, w, hh);
+      ctx.fillRect(x, y, ww, hh);
       ctx.globalAlpha = 1;
     } else if (it.seen) {
       ctx.fillStyle = css("--evidence");
-      ctx.fillRect(0, y, w * Math.max(0.05, Math.min(1, it.x)), hh);
+      ctx.fillRect(x, y, ww * Math.max(0.05, Math.min(1, it.x)), hh);
     }
     if (it.w > 0) {
       ctx.fillStyle = css("--watch");
-      ctx.fillRect(0, y, Math.min(w * 0.5, 4 + it.w * 3), hh);
+      ctx.fillRect(x, y, Math.min(ww * 0.5, 4 + it.w * 3), hh);
     }
     if (showHidden && it.hidden.z) {
       ctx.fillStyle = css("--z1");
-      ctx.fillRect(w - 6, y, 6, hh);
+      ctx.fillRect(x + ww - 6, y, 6, hh);
     }
     if (it.late) {
       ctx.fillStyle = css("--late");
-      ctx.fillRect(w - 14, y - 1, 8, hh + 2);
+      ctx.fillRect(x + ww - 14, y - 1, 8, hh + 2);
     }
   }
   ctx.strokeStyle = css("--text");
@@ -645,7 +661,7 @@ function drawMinimap() {
   ctx.strokeRect(1, state.scroll * rh, w - 2, state.screen_h * rh);
   if (state.current !== null) {
     ctx.fillStyle = css("--current");
-    ctx.fillRect(0, state.current * rh - 1, w, Math.max(2, rh + 1));
+    ctx.fillRect((state.current % C) * cw, Math.floor(state.current / C) * rh - 1, cw, Math.max(2, rh + 1));
   }
 }
 
@@ -744,7 +760,8 @@ function drawRates() {
   const showHidden = $("hidden").checked;
   const known = state.items.filter((it) => it.understood);
   const seenMax = Math.max(...state.items.filter((it) => it.seen).map((it) => it.id), 0);
-  const hiIdx = Math.min(state.n_items, Math.max(seenMax + 4, Math.ceil(state.scroll + state.screen_h) + 3, 12));
+  const C = state.columns || 1;
+  const hiIdx = Math.min(state.n_items, Math.max(seenMax + 4, Math.ceil((state.scroll + state.screen_h) * C) + 3, 12));
   const rho = usesRho() ? parseFloat($("rho").value) : 0;
   const rMax = Math.max(0.5, rho, ...known.map((it) => it.rate), ...(showHidden ? known.map((it) => it.hidden.rate) : [])) * 1.15;
   const x0 = 44, y0 = h - 22, pw = w - x0 - 10, ph = h - 34;
@@ -755,7 +772,7 @@ function drawRates() {
   // the screen window
   ctx.fillStyle = css("--evidence");
   ctx.globalAlpha = 0.12;
-  ctx.fillRect(X(state.scroll), y0 - ph, X(state.scroll + state.screen_h) - X(state.scroll), ph);
+  ctx.fillRect(X(state.scroll * C), y0 - ph, X((state.scroll + state.screen_h) * C) - X(state.scroll * C), ph);
   ctx.globalAlpha = 1;
   axes(ctx, x0, y0, pw, ph);
 

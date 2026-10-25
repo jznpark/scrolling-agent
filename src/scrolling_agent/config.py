@@ -41,11 +41,21 @@ class ScreenConfig:
     cards_per_screen: float = 3.0       # [draft] screen height ≈ 3 cards
     visible_fraction: float = 0.5       # [draft] DDM active when ≥ 50% of a thumbnail is visible
     speeds: tuple[float, ...] = (0.5,)  # [draft] screen heights / s; later (0.5, 1.5)
+    columns: int = 1                    # [ext] shopping grid: cards side by side per row; 1 = draft single column
+
+    def __post_init__(self) -> None:
+        if self.columns < 1:
+            raise ValueError(f"columns must be >= 1, got {self.columns}")
+
+    @property
+    def n_rows(self) -> int:
+        """Rows of the list; item i sits in row i // columns (the last row may be partly empty)."""
+        return math.ceil(self.n_items / self.columns)
 
     @property
     def max_visible_slots(self) -> int:
-        """Most items that can pass the visibility rule at once (two half cards at the edges)."""
-        return math.ceil(self.cards_per_screen) + 1
+        """Most items that can pass the visibility rule at once (two half rows at the edges)."""
+        return (math.ceil(self.cards_per_screen) + 1) * self.columns
 
 
 @dataclass

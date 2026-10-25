@@ -5,6 +5,12 @@ position s = top edge of the screen in cards, 0 <= s <= n_items - H. Item i
 covers [i, i + 1]; it is visible when at least `visible_fraction` of it is on
 screen. Speeds are in screen heights / s (as v0 in g(|v|)).
 
+Shopping grid extension (`screen.columns` = C > 1, default 1 = the draft): cards
+sit C to a row, item i in row r = i // C, column i % C. Every length above is then
+counted in rows (H rows per screen, 0 <= s <= n_rows - H) and all C items of a
+visible row are visible together, so the DDM runs for up to C times as many items
+at once. Slots are ordered row by row, left to right.
+
 Modes: LIST (move / stay, DDM of visible items runs), WATCH (watch the clicked
 item), TRANSITION (click or back, `transition_steps` steps counted from the step
 the action is chosen; no reward and no DDM).
@@ -48,13 +54,16 @@ N_MEMORY_FEATURES = 6
 N_CURRENT_FEATURES = 4
 
 
-def visible_items(scroll: float, n_items: int, screen_h: float, frac: float) -> np.ndarray:
-    """Items with at least `frac` of their height on screen, top to bottom."""
+def visible_items(scroll: float, n_items: int, screen_h: float, frac: float, columns: int = 1) -> np.ndarray:
+    """Items with at least `frac` of their height on screen, top to bottom (row by row, left to right)."""
+    n_rows = -(-n_items // columns)
     lo = max(int(np.floor(scroll)), 0)
-    hi = min(int(np.ceil(scroll + screen_h)), n_items)
-    idx = np.arange(lo, hi)
-    overlap = np.minimum(idx + 1, scroll + screen_h) - np.maximum(idx, scroll)
-    return idx[overlap >= frac - 1e-9]
+    hi = min(int(np.ceil(scroll + screen_h)), n_rows)
+    rows = np.arange(lo, hi)
+    overlap = np.minimum(rows + 1, scroll + screen_h) - np.maximum(rows, scroll)
+    rows = rows[overlap >= frac - 1e-9]
+    idx = (rows[:, None] * columns + np.arange(columns)).ravel()
+    return idx[idx < n_items]
 
 
 def advance_evidence(
@@ -80,7 +89,8 @@ class ScrollingEnv(gym.Env):
         self._fixed_feed = feed
 
         self.screen_h = self.cfg.screen.cards_per_screen
-        self.max_scroll = max(self.n_items - self.screen_h, 0.0)
+        self.columns = self.cfg.screen.columns
+        self.max_scroll = max(self.cfg.screen.n_rows - self.screen_h, 0.0)
         self.n_speeds = len(self.cfg.screen.speeds)
         self.n_slots = self.cfg.screen.max_visible_slots
 
@@ -203,7 +213,7 @@ class ScrollingEnv(gym.Env):
             new_scroll = float(np.clip(self.scroll + velocity * h, 0.0, self.max_scroll))
             speed = abs(new_scroll - self.scroll) / h / self.screen_h  # actual, 0 when blocked
             self.scroll = new_scroll
-            vis = visible_items(self.scroll, self.n_items, self.screen_h, scr.visible_fraction)
+            vis = visible_items(self.scroll, self.n_items, self.screen_h, scr.visible_fraction, self.columns)
             self.exposure[vis] += h
             active = vis[~self.understood[vis]]
             if active.size == 0:
@@ -216,7 +226,7 @@ class ScrollingEnv(gym.Env):
 
     def visible_slots(self) -> np.ndarray:
         """Item ids in the visible slots, top to bottom."""
-        vis = visible_items(self.scroll, self.n_items, self.screen_h, self.cfg.screen.visible_fraction)
+        vis = visible_items(self.scroll, self.n_items, self.screen_h, self.cfg.screen.visible_fraction, self.columns)
         return vis[: self.n_slots]
 
     def action_masks(self) -> np.ndarray:
@@ -261,14 +271,15 @@ class ScrollingEnv(gym.Env):
             i = self.current
             cur[:] = A_known[i], lam_known[i], self.w[i], A_known[i] * np.exp(-lam_known[i] * self.w[i])
 
+        row = np.arange(n) // self.columns
         slots = np.zeros((self.n_slots, N_SLOT_FEATURES))
         for j, i in enumerate(self.visible_slots()):
             slots[j] = (
-                1.0, i / n, (i - self.scroll) / H, x_rel[i], self.exposure[i],
+                1.0, i / n, (row[i] - self.scroll) / H, x_rel[i], self.exposure[i],
                 self.understood[i], A_known[i], lam_known[i], self.w[i],
             )
 
-        centre_offset = (np.arange(n) + 0.5 - self.scroll - H / 2) / H
+        centre_offset = (row + 0.5 - self.scroll - H / 2) / H
         memory = np.column_stack([self.understood, A_known, lam_known, self.w, x_rel, centre_offset])
         return np.concatenate([g, cur, slots.ravel(), memory.ravel()]).astype(np.float32)
 
