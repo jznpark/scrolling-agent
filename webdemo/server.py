@@ -242,7 +242,7 @@ class Session:
 
     def step(self, n: int, action: int | None = None) -> list[list[float]]:
         """Advance up to n steps (one step when `action` is given); return [t, return, mode] per step."""
-        from scrolling_agent.env import LIST, WATCH, visible_items
+        from scrolling_agent.env import LIST, WATCH
 
         env, history = self.env, []
         for _ in range(1 if action is not None else min(n, MAX_STEPS_PER_REQUEST)):
@@ -268,7 +268,7 @@ class Session:
                 self.last_watched = int(env.current)
             self.total += reward
             self.last_action, self.last_reward = a, float(reward)
-            on_screen = set(visible_items(env.scroll, env.n_items, env.screen_h, env.cfg.screen.visible_fraction))
+            on_screen = set(int(i) for i in env.visible_slots())
             for i in np.flatnonzero(env.understood & ~understood_before):
                 where = "" if i in on_screen else " — 지나간 뒤에 뒤늦게!"
                 if where:
@@ -314,6 +314,7 @@ class Session:
             "scroll": round(float(env.scroll), 4),
             "max_scroll": float(env.max_scroll),
             "screen_h": float(env.screen_h),
+            "columns": int(getattr(env, "columns", 1)),  # shopping grid extension; 1 on other branches
             "n_items": env.n_items,
             "slots": [int(i) for i in env.visible_slots()],
             "mask": [bool(m) for m in env.action_masks()],
