@@ -31,6 +31,7 @@ understood, true nu and latent z are never included):
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import gymnasium as gym
@@ -134,6 +135,10 @@ class ScrollingEnv(gym.Env):
         self.step_count = 0
         self.time_by_mode = {name: 0.0 for name in MODE_NAMES}
         self.watch_reward_total = 0.0
+        self.auto_preview_item: int | None = None
+        self._previewed = np.zeros(n, dtype=bool)
+        self._preview_watch_steps = 0
+        self.n_auto_previews = 0
         self._prev_action: int | None = None
         self._prev_reward = 0.0
         return self._obs(), self._info()
@@ -143,6 +148,14 @@ class ScrollingEnv(gym.Env):
         invalid = not self.action_masks()[action]
         if invalid:
             action = self.stay_action
+        requested = action
+        action = self.resolve_action(requested)
+        if self.mode == LIST and action != requested and action in self.slot_actions:
+            item = int(self.visible_slots()[self.slot_actions.index(action)])
+            self.auto_preview_item = item
+            self._previewed[item] = True
+            self._preview_watch_steps = 0
+            self.n_auto_previews += 1
         dt = self.cfg.time.dt
 
         if self.mode == LIST and action in self.slot_actions:
@@ -166,8 +179,11 @@ class ScrollingEnv(gym.Env):
             self.w[i] += dt
             self.watch_reward_total += reward_watch
             self.time_by_mode["WATCH"] += dt
+            if self.auto_preview_item is not None:
+                self._preview_watch_steps += 1
         if self.mode == LIST:
             self.current = None
+            self.auto_preview_item = None
 
         reward = reward_watch - self.cfg.time.step_cost
         self.step_count += 1
@@ -179,6 +195,24 @@ class ScrollingEnv(gym.Env):
         return self._obs(), reward, terminated, False, info
 
     # --- dynamics --------------------------------------------------------------
+
+    def resolve_action(self, action: int) -> int:
+        """Resolve a valid request without mutation, so logs count actual actions.
+
+        Explicit clicks take priority. Otherwise preview the first visible,
+        understood, never-watched card once. A preview watches for the configured
+        duration, rounded up to a whole step, then returns through normal back.
+        """
+        if not self.cfg.preview.enabled:
+            return action
+        if self.mode == WATCH and self.auto_preview_item is not None:
+            steps = max(1, math.ceil(self.cfg.preview.seconds / self.cfg.time.dt - 1e-9))
+            return self.back_action if self._preview_watch_steps >= steps else self.stay_action
+        if self.mode == LIST and action not in self.slot_actions:
+            for slot, item in enumerate(self.visible_slots()):
+                if self.understood[item] and not self._previewed[item] and self.w[item] == 0:
+                    return self.slot_actions[slot]
+        return action
 
     def _start_transition(self, target: int) -> None:
         self.mode = TRANSITION
@@ -240,7 +274,7 @@ class ScrollingEnv(gym.Env):
 
     def extra_metrics(self) -> dict[str, float]:
         """Episode counters of optional model extensions (empty in the MVP)."""
-        return {}
+        return {"n_auto_previews": self.n_auto_previews} if self.cfg.preview.enabled else {}
 
     def _obs(self) -> np.ndarray:
         n, H, B = self.n_items, self.screen_h, self.cfg.ddm.threshold

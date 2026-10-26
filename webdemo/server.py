@@ -146,8 +146,9 @@ def compare_behaviour(overrides: dict[str, Any], policy: dict[str, Any], runs_di
     for name, ov in (("base", {}), ("now", overrides)):
         env = ScrollingEnv(build_config(ov))
         stats[name] = summarize(evaluate(env, make_policy(policy, runs_dir), seeds))
-    rows = [dict(b, base=round(stats["base"][b["key"]][0], 3), now=round(stats["now"][b["key"]][0], 3))
-            for b in BEHAVIOURS if b["key"] in stats["base"]]
+    rows = [dict(b, base=round(stats["base"].get(b["key"], (0, 0))[0], 3),
+                 now=round(stats["now"].get(b["key"], (0, 0))[0], 3))
+            for b in BEHAVIOURS if b["key"] in stats["base"] or b["key"] in stats["now"]]
     return {"n": n, "seeds": [seeds[0], seeds[-1]], "seconds": round(time.perf_counter() - t0, 1), "rows": rows}
 
 
@@ -256,16 +257,21 @@ class Session:
             if not 0 <= a < env.n_actions or not env.action_masks()[a]:
                 self._event("invalid", f"지금은 '{self.labels[a] if 0 <= a < env.n_actions else a}'을(를) 할 수 없어 멈춤")
                 a = env.stay_action
+            requested = a
+            a = env.resolve_action(a) if hasattr(env, "resolve_action") else a
             if mode_before == LIST and a in env.slot_actions:
                 item = int(env.visible_slots()[env.slot_actions.index(a)])
                 self.n_clicks += 1
                 note = " (다시 보기)" if env.w[item] > 0 else ""
+                if a != requested:
+                    note += " ← 자동 미리보기"
                 if item in self.late_items:
                     note += " ← 뒤늦게 알아챈 콘텐츠로 되돌아옴"
                 self._event("click", f"#{item} 열기{note}")
             if mode_before == WATCH and a == env.back_action:
-                self._event("back", f"#{current_before} 닫음 ({env.w[current_before]:.1f}초 봄)")
-            _, reward, *_ = env.step(a)
+                note = " · 미리보기 종료" if getattr(env, "auto_preview_item", None) is not None else ""
+                self._event("back", f"#{current_before} 닫음 ({env.w[current_before]:.1f}초 봄){note}")
+            _, reward, *_ = env.step(requested)
             if env.current is not None:
                 self.last_watched = int(env.current)
             self.total += reward
@@ -316,6 +322,8 @@ class Session:
             "transition_to": ["LIST", "WATCH", "TRANSITION"][getattr(env, "_transition_to", 0)]
             if env.mode == 2 else None,
             "current": env.current,
+            "auto_preview": ({"item": env.auto_preview_item, "seconds": env.cfg.preview.seconds}
+                             if getattr(env, "auto_preview_item", None) is not None else None),
             "last_watched": self.last_watched,
             "scroll": round(float(env.scroll), 4),
             "max_scroll": float(env.max_scroll),

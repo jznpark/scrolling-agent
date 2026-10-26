@@ -78,11 +78,22 @@ class FeedConfig:
 
 
 @dataclass
+class PreviewConfig:
+    enabled: bool = False               # [ext] auto-preview understood, unwatched cards
+    seconds: float = 1.0                # [ext] actual watch time, excluding open / close
+
+    def __post_init__(self) -> None:
+        if not math.isfinite(self.seconds) or self.seconds <= 0:
+            raise ValueError("preview.seconds must be finite and greater than zero")
+
+
+@dataclass
 class Config:
     time: TimeConfig = field(default_factory=TimeConfig)
     screen: ScreenConfig = field(default_factory=ScreenConfig)
     ddm: DDMConfig = field(default_factory=DDMConfig)
     feed: FeedConfig = field(default_factory=FeedConfig)
+    preview: PreviewConfig = field(default_factory=PreviewConfig)
 
 
 def config_from_dict(data: dict) -> Config:

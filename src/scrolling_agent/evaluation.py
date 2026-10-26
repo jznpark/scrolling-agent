@@ -54,12 +54,13 @@ def run_episode(
     terminated = False
     while not terminated:
         mode_before = env.mode
-        action = policy(env)
+        requested = policy(env)
+        action = env.resolve_action(requested)
         if mode_before == LIST and action in env.slot_actions and env.action_masks()[action]:
             item = env.visible_slots()[env.slot_actions.index(action)]
             n_clicks += 1
             n_revisits += int(env.w[item] > 0)
-        _, reward, terminated, _, info = env.step(action)
+        _, reward, terminated, _, info = env.step(requested)
         total += reward
         n_invalid += int(info["invalid_action"])
         n_stay_list += int(mode_before == LIST and env.mode == LIST and action == env.stay_action)
