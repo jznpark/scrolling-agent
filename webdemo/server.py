@@ -32,6 +32,7 @@ from typing import Any
 import numpy as np
 
 from .descriptions import BEHAVIOURS, DESCRIPTIONS, LABELS, SCENARIOS, UI_HELP
+from .reminder import BreakReminder, ReminderSettings
 
 STATIC = Path(__file__).parent / "static"
 CONTENT_TYPES = {".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml"}
@@ -95,6 +96,14 @@ def settings_schema() -> list[dict[str, Any]]:
                 "tag": tag[1] if tag else (default_tag[1] if default_tag else ""),
             })
         sections.append({"name": section.name, "fields": items})
+    sections.append({"name": "reminder", "label": "그만 보기 알림", "fields": [
+        {"name": f.name, "key": f"reminder.{f.name}",
+         "kind": _kind(getattr(ReminderSettings(), f.name)),
+         "default": getattr(ReminderSettings(), f.name), "choices": None,
+         "comment": "", "help": DESCRIPTIONS[f"reminder.{f.name}"],
+         "label": LABELS[f"reminder.{f.name}"], "tag": "ext"}
+        for f in fields(ReminderSettings)
+    ]})
     return sections
 
 
@@ -102,8 +111,11 @@ def build_config(overrides: dict[str, Any]):
     """Config with "section.field" overrides (values already typed by the page)."""
     from scrolling_agent.config import Config
 
+    ReminderSettings.from_overrides(overrides)  # validate demo-only settings too
     cfg = Config()
     for key, value in overrides.items():
+        if key.startswith("reminder."):
+            continue  # viewer control, deliberately outside the model's Config
         section, _, name = key.partition(".")
         if not hasattr(cfg, section):
             raise ValueError(f"unknown section in {key!r}")
@@ -148,7 +160,8 @@ def compare_behaviour(overrides: dict[str, Any], policy: dict[str, Any], runs_di
         stats[name] = summarize(evaluate(env, make_policy(policy, runs_dir), seeds))
     rows = [dict(b, base=round(stats["base"][b["key"]][0], 3), now=round(stats["now"][b["key"]][0], 3))
             for b in BEHAVIOURS if b["key"] in stats["base"]]
-    return {"n": n, "seeds": [seeds[0], seeds[-1]], "seconds": round(time.perf_counter() - t0, 1), "rows": rows}
+    return {"n": n, "seeds": [seeds[0], seeds[-1]], "seconds": round(time.perf_counter() - t0, 1),
+            "rows": rows, "reminder_excluded": ReminderSettings.from_overrides(overrides).enabled}
 
 
 # --- policies ------------------------------------------------------------------------
@@ -217,6 +230,7 @@ class Session:
 
         self.lock = threading.Lock()
         self.cfg = build_config(overrides)
+        self.reminder = BreakReminder(ReminderSettings.from_overrides(overrides), self.cfg.time.dt)
         self.env = ScrollingEnv(self.cfg)
         self.env.reset(seed=seed)
         self.policy = make_policy(policy, runs_dir)
@@ -233,7 +247,7 @@ class Session:
 
     @property
     def done(self) -> bool:
-        return self.env.step_count >= self.cfg.time.n_steps
+        return self.reminder.stopped or self.env.step_count >= self.cfg.time.n_steps
 
     def _event(self, kind: str, text: str) -> None:
         self.event_id += 1
@@ -246,7 +260,7 @@ class Session:
 
         env, history = self.env, []
         for _ in range(1 if action is not None else min(n, MAX_STEPS_PER_REQUEST)):
-            if self.done:
+            if self.done or self.reminder.pending:
                 break
             mode_before, current_before = env.mode, env.current
             understood_before = env.understood.copy()
@@ -281,7 +295,16 @@ class Session:
                     self.late_items.add(int(i))
                 self._event("understood" if not where else "late", f"#{i} 뭔지 알아봄{where}")
             history.append([round(env.step_count * self.cfg.time.dt, 2), round(self.total, 4), int(env.mode)])
+            if self.reminder.check(env.step_count, finished=self.done):
+                self._event("reminder", "그만 보기 알림 — 계속 볼지 선택할 때까지 일시정지")
+                break
         return history
+
+    def respond_reminder(self, choice: str) -> None:
+        self.reminder.respond(choice, self.env.step_count)
+        message = (f"계속 보기 — {self.reminder.state()['next_at']:g}초에 다시 알림"
+                   if choice == "continue" else "그만 보기 선택 — 이번 세션 종료")
+        self._event("reminder", message)
 
     def state(self, history: list, since_event: int = 0) -> dict[str, Any]:
         env, f = self.env, self.env.feed
@@ -312,6 +335,8 @@ class Session:
             "T": self.cfg.time.session_seconds,
             "dt": self.cfg.time.dt,
             "done": self.done,
+            "reminder": self.reminder.state(),
+            "end_reason": "reminder" if self.reminder.stopped else "time_limit" if self.done else None,
             "mode": ["LIST", "WATCH", "TRANSITION"][env.mode],
             "transition_to": ["LIST", "WATCH", "TRANSITION"][getattr(env, "_transition_to", 0)]
             if env.mode == 2 else None,
@@ -418,14 +443,18 @@ class DemoHandler(BaseHTTPRequestHandler):
             elif self.path == "/api/compare":
                 self._json(compare_behaviour(body.get("overrides", {}), body.get("policy", {"name": "greedy"}),
                                              self.server.runs_dir, body.get("n", 10), int(body.get("seed", 10_000))))
-            elif self.path == "/api/step":
+            elif self.path in ("/api/step", "/api/reminder"):
                 session = self.server.sessions.get(sid)
                 if session is None:
                     self._error(HTTPStatus.NOT_FOUND, "no such session; reset first")
                     return
                 action = body.get("action")
                 with session.lock:
-                    history = session.step(int(body.get("n", 1)), None if action is None else int(action))
+                    if self.path == "/api/reminder":
+                        session.respond_reminder(body.get("choice", ""))
+                        history = []
+                    else:
+                        history = session.step(int(body.get("n", 1)), None if action is None else int(action))
                     self._json(session.state(history, int(body.get("since_event", 0))))
             else:
                 self._error(HTTPStatus.NOT_FOUND, "not found")

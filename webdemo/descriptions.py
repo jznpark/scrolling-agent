@@ -9,6 +9,9 @@ import math
 
 # Short everyday name shown next to each setting.
 LABELS: dict[str, str] = {
+    "reminder.enabled": "그만 보기 알림 켜기",
+    "reminder.after_seconds": "처음 알릴 사용 시간 (초)",
+    "reminder.snooze_seconds": "계속 보기 후 다시 알릴 간격 (초)",
     "time.session_seconds": "전체 사용 시간",
     "time.dt": "한 번 판단하는 간격",
     "time.step_cost": "시간이 아까운 정도",
@@ -43,6 +46,12 @@ LABELS: dict[str, str] = {
 
 # "?" explanations: what it is in daily life, and what happens when you raise it.
 DESCRIPTIONS: dict[str, str] = {
+    "reminder.enabled": "설정한 시뮬레이션 시간이 되면 재생을 멈추고 계속 볼지, 그만 볼지 묻습니다. "
+                        "기본값은 꺼짐입니다. 실제 벽시계 시간이나 콘텐츠 시청 시간만 세는 기능은 아닙니다.",
+    "reminder.after_seconds": "목록 탐색·콘텐츠 시청·전환을 모두 합친 시뮬레이션 사용 시간입니다. "
+                              "처음 이 시간에 도달한 스텝에서 알립니다. 세션 종료 시각 이후로 설정하면 알리지 않습니다.",
+    "reminder.snooze_seconds": "'계속 보기'를 선택한 뒤 이만큼 시뮬레이션 시간이 더 지나면 다시 묻습니다. "
+                               "알림에 답하는 동안 시뮬레이션은 진행되지 않습니다.",
     # time
     "time.session_seconds": "앱을 쓰는 전체 시간(초)입니다. 예를 들어 120이면 \"2분만 볼게\" 하고 켠 상황입니다. "
                             "무엇을 하든 시간은 흘러갑니다.",
@@ -145,6 +154,10 @@ BEHAVIOURS: list[dict[str, str]] = [
 # Ready-made situations: settings to change, suggested policy, what to look for.
 SCENARIOS: list[dict] = [
     {"id": "base", "name": "기본 (교수님 초안 설정)", "set": {}, "expect": "비교의 기준입니다."},
+    {"id": "take_break", "name": "30초 뒤 그만 보기 알림 [확장]",
+     "set": {"reminder.enabled": True},
+     "expect": "30초에 멈춰 계속 볼지 묻습니다. 계속 보면 15초 뒤에 다시 알리고, 그만 보기를 고르면 세션을 끝냅니다. "
+               "아래 행동 비교는 알림 응답 없이 끝까지 실행한 정책 결과입니다."},
     {"id": "rare", "name": "좋은 콘텐츠가 드문 피드", "set": {"feed.p": 0.1},
      "expect": "볼 만한 걸 찾으려고 훨씬 아래까지(끝까지) 내려가고, 열어도 금방 닫는 일이 늘어 얻는 재미가 절반 정도로 줄어듭니다."},
     {"id": "common", "name": "좋은 콘텐츠가 흔한 피드", "set": {"feed.p": 0.6},

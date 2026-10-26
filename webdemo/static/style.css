@@ -110,6 +110,21 @@ button.wide { width: 100%; margin-top: 10px; }
 .tooltip .key { color: #93c5fd; font-family: ui-monospace, Consolas, monospace; font-size: 11px; display: block; margin-bottom: 2px; }
 
 /* two halves: phone (left) | reward rates (right) */
+.break-reminder {
+  margin: 12px; padding: 16px 20px; border: 2px solid var(--accent); border-radius: 10px;
+  background: var(--panel); display: flex; flex-wrap: wrap; gap: 12px 24px;
+  align-items: center; justify-content: space-between;
+}
+.break-reminder[hidden] { display: none; }
+.break-reminder h2 { margin: 0 0 6px; font-size: 19px; }
+.break-reminder p { margin: 0; }
+.reminder-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.reminder-actions[hidden] { display: none; }
+.reminder-actions button { min-height: 44px; }
+#compare-reminder-note { color: var(--accent); }
+button:disabled { opacity: .5; cursor: default; }
+#events .reminder { color: var(--accent); font-weight: 600; }
+
 .split {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);

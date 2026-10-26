@@ -107,6 +107,33 @@ def test_http_errors(server):
     assert err.value.code == 404
 
 
+def test_http_reminder_pause_continue_stop_reset(server):
+    body = {"session": "break", "seed": 10000, "policy": {"name": "greedy"},
+            "overrides": {"reminder.enabled": True}}
+    call(server + "/api/reset", body)
+    state = json.loads(call(server + "/api/step", {"session": "break", "n": 600})[1])
+    assert state["t"] == 30.0 and state["reminder"]["pending"]
+    state = json.loads(call(server + "/api/reminder", {"session": "break", "choice": "continue"})[1])
+    assert state["t"] == 30.0 and state["reminder"]["next_at"] == 45.0
+    state = json.loads(call(server + "/api/step", {"session": "break", "n": 600})[1])
+    assert state["t"] == 45.0 and state["reminder"]["count"] == 2
+    state = json.loads(call(server + "/api/reminder", {"session": "break", "choice": "stop"})[1])
+    assert state["done"] and state["end_reason"] == "reminder"
+    state = json.loads(call(server + "/api/step", {"session": "break", "n": 600})[1])
+    assert state["t"] == 45.0
+    state = json.loads(call(server + "/api/reset", body)[1])
+    assert state["t"] == 0 and not state["done"] and state["reminder"]["count"] == 0
+    with pytest.raises(urllib.error.HTTPError) as err:
+        call(server + "/api/reminder", {"session": "break", "choice": "continue"})
+    assert err.value.code == 400
+    with pytest.raises(urllib.error.HTTPError) as err:
+        call(server + "/api/reminder", {"session": "no-break-session", "choice": "stop"})
+    assert err.value.code == 404
+    with pytest.raises(urllib.error.HTTPError) as err:
+        call(server + "/api/reset", {"session": "invalid-reminder", "overrides": {"reminder.after_seconds": 0}})
+    assert err.value.code == 400
+
+
 def test_every_setting_has_a_korean_description():
     from webdemo.descriptions import DESCRIPTIONS
 
