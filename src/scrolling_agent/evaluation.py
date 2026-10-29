@@ -30,6 +30,8 @@ class EpisodeTrace:
     understood: np.ndarray    # (N, n)
     exposure: np.ndarray      # (N, n) seconds on screen
     w: np.ndarray             # (N, n) watch time
+    A_known: np.ndarray       # (N, n) A as the agent knows it (0 before understanding)
+    lam_known: np.ndarray     # (N, n) lambda as the agent knows it
 
     @property
     def t(self) -> np.ndarray:
@@ -47,7 +49,7 @@ def run_episode(
     options = {"feed": feed} if feed is not None else None
     env.reset(seed=seed, options=options)
     rows: dict[str, list] = {k: [] for k in ("scroll", "mode", "current", "action", "reward",
-                                             "x", "understood", "exposure", "w")}
+                                             "x", "understood", "exposure", "w", "A_known", "lam_known")}
     total = 0.0
     n_clicks = n_revisits = n_invalid = n_stay_list = 0
     bouts: list[int] = []  # length (steps) of each uninterrupted watch bout
@@ -77,6 +79,9 @@ def run_episode(
             rows["understood"].append(env.understood.copy())
             rows["exposure"].append(env.exposure.copy())
             rows["w"].append(env.w.copy())
+            A_known, lam_known = env.revealed_profile()
+            rows["A_known"].append(A_known.copy())
+            rows["lam_known"].append(lam_known.copy())
 
     times = info["time_by_mode"]
     dt = env.cfg.time.dt

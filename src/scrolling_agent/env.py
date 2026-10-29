@@ -17,8 +17,13 @@ Actions (flat discrete index, for MaskablePPO), with S speeds and K slots:
     2S+K+1             back           WATCH -> LIST at the previous scroll position
 An action outside `action_masks()` is replaced by stay(None).
 
+Value estimation error (EstimateConfig, off by default): understood items show
+log-noisy (A, lambda) that become exact while the item is watched; rewards always
+use the true values. The error draws use their own seed stream.
+
 Observation (float32 vector, physical units; hidden A, lambda of items not yet
-understood, true nu and latent z are never included):
+understood, true nu and latent z are never included; A, lambda are the perceived
+values from `revealed_profile`):
     global   mode one-hot (LIST, WATCH, TRANSITION), transition left (fraction),
              scroll position (fraction), remaining time (fraction),
              previous action one-hot, previous reward
@@ -110,9 +115,11 @@ class ScrollingEnv(gym.Env):
     def reset(self, *, seed: int | None = None, options: dict[str, Any] | None = None):
         super().reset(seed=seed)
         if seed is not None or self._rng_feed is None:
-            feed_ss, ddm_ss = np.random.SeedSequence(seed).spawn(2)
+            # spawn(3)[:2] equals spawn(2): feed and DDM streams match the MVP
+            feed_ss, ddm_ss, est_ss = np.random.SeedSequence(seed).spawn(3)
             self._rng_feed = np.random.default_rng(feed_ss)
             self._rng_ddm = np.random.default_rng(ddm_ss)
+            self._rng_est = np.random.default_rng(est_ss)
 
         feed = (options or {}).get("feed") or self._fixed_feed
         if feed is None:
@@ -136,6 +143,10 @@ class ScrollingEnv(gym.Env):
         self.watch_reward_total = 0.0
         self._prev_action: int | None = None
         self._prev_reward = 0.0
+        # value estimation error: one draw per item and episode, from its own stream
+        self._eps_A, self._eps_lam = self._rng_est.standard_normal((2, n))
+        self._click_log_errors: list[float] = []
+        self._n_overestimated_clicks = 0
         return self._obs(), self._info()
 
     def step(self, action: int):
@@ -147,6 +158,7 @@ class ScrollingEnv(gym.Env):
 
         if self.mode == LIST and action in self.slot_actions:
             self.current = int(self.visible_slots()[self.slot_actions.index(action)])
+            self._record_click(self.current)
             self._start_transition(WATCH)
         elif self.mode == WATCH and action == self.back_action:
             self._start_transition(LIST)
@@ -236,11 +248,41 @@ class ScrollingEnv(gym.Env):
 
     def revealed_profile(self) -> tuple[np.ndarray, np.ndarray]:
         """(A, lambda) as the agent knows them: revealed for understood items, 0 otherwise."""
-        return np.where(self.understood, self.feed.A, 0.0), np.where(self.understood, self.feed.lam, 0.0)
+        A_hat, lam_hat = self.estimated_profile()
+        return np.where(self.understood, A_hat, 0.0), np.where(self.understood, lam_hat, 0.0)
+
+    def estimated_profile(self) -> tuple[np.ndarray, np.ndarray]:
+        """Perceived (A, lambda) of every item (EstimateConfig); the truth when sigma_est = 0."""
+        est = self.cfg.estimate
+        if est.sigma_est == 0:
+            return self.feed.A, self.feed.lam
+        if est.tau_learn > 0:
+            fade = np.exp(-self.w / est.tau_learn)
+        else:
+            fade = (self.w == 0).astype(float)  # exact after the first watched step
+        A_hat = self.feed.A * np.exp(est.sigma_est * self._eps_A * fade)
+        lam_hat = self.feed.lam * np.exp(est.sigma_est * self._eps_lam * fade) if est.noise_lambda else self.feed.lam
+        return A_hat, lam_hat
+
+    def _record_click(self, i: int) -> None:
+        A_hat, lam_hat = self.estimated_profile()
+        w = self.w[i]
+        seen = A_hat[i] * np.exp(-lam_hat[i] * w)
+        true = self.feed.A[i] * np.exp(-self.feed.lam[i] * w)
+        self._click_log_errors.append(float(np.log(seen / true)))
+        self._n_overestimated_clicks += int(seen > true)
 
     def extra_metrics(self) -> dict[str, float]:
-        """Episode counters of optional model extensions (empty in the MVP)."""
-        return {}
+        """Episode counters of optional model extensions.
+
+        click_log_error: mean log(perceived / true) current rate at click; above 0
+        means the clicked items looked better than they were (selection on noise).
+        """
+        errors = np.array(self._click_log_errors)
+        return {
+            "n_overestimated_clicks": self._n_overestimated_clicks,
+            "click_log_error": float(np.mean(errors)) if errors.size else 0.0,
+        }
 
     def _obs(self) -> np.ndarray:
         n, H, B = self.n_items, self.screen_h, self.cfg.ddm.threshold
