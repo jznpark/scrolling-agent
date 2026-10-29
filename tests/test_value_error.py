@@ -106,7 +106,9 @@ def test_click_metrics():
     env = ScrollingEnv(noisy(0.0))
     env.reset(seed=0)
     random_masked_actions(env, np.random.default_rng(0), 400)
-    assert env.extra_metrics() == {"n_overestimated_clicks": 0, "click_log_error": 0.0}
+    metrics = env.extra_metrics()  # other extensions may add their own keys
+    assert {k: metrics[k] for k in ("n_overestimated_clicks", "click_log_error")} == {
+        "n_overestimated_clicks": 0, "click_log_error": 0.0}
 
 
 def test_noise_makes_greedy_open_and_leave_more_often():
