@@ -95,6 +95,7 @@ function fieldInput(field) {
     if (input.type === "number") input.step = "any";
   }
   input.dataset.key = field.key;
+  input.setAttribute("aria-label", field.label || field.key);
   setInput(input, field, field.default);
   input.addEventListener("input", () => markChanged(input, field));
   input.addEventListener("change", () => markChanged(input, field));
@@ -131,7 +132,7 @@ function buildSettings() {
     const hasExt = section.fields.some((f) => f.tag === "ext");
     det.open = hasExt || section.name === "feed";
     const sum = document.createElement("summary");
-    sum.textContent = section.name;
+    sum.textContent = section.label || section.name;
     if (hasExt) sum.innerHTML += ' <span class="tag ext">ext</span>';
     det.appendChild(sum);
     for (const field of section.fields) {
@@ -279,6 +280,7 @@ async function runCompare() {
   $("compare-run").disabled = true;
   $("compare-status").textContent = `피드 ${n}개를 기본 설정과 지금 설정으로 각각 돌리는 중… (몇 초 걸립니다)`;
   $("compare-changed").innerHTML = changedSettingsText();
+  $("compare-reminder-note").hidden = !overrides()["reminder.enabled"];
   try {
     const res = await api("api/compare", { overrides: overrides(), policy: policySpec(), n,
       seed: parseInt($("seed").value, 10) });
@@ -308,6 +310,7 @@ function change(row) {
 }
 
 function renderCompare(res) {
+  $("compare-reminder-note").hidden = !res.reminder_excluded;
   const table = $("compare-table");
   table.innerHTML = "<tr><th>행동</th><th class='num'>기본 설정</th><th class='num'>지금 설정</th><th></th><th class='chg'>변화</th></tr>";
   const changes = [];
@@ -331,7 +334,7 @@ function renderCompare(res) {
     const c = change(ret);
     summary += ` 얻은 재미는 ${fmt(ret.base, 1)} → ${fmt(ret.now, 1)} (${c.text}).`;
   }
-  $("compare-summary").innerHTML = summary;
+  $("compare-summary").innerHTML = (res.reminder_excluded ? "알림 응답을 제외한 자동 평가: " : "") + summary;
 }
 
 // --- episode control -----------------------------------------------------------------
@@ -345,6 +348,8 @@ async function reset() {
     toast(`다시 시작 실패: ${err.message}`);
     return;
   }
+  held.clear();
+  pending = null;
   history = [];
   events = [];
   lastEventId = 0;
@@ -380,7 +385,7 @@ function momentOf(e) {
 }
 
 async function advance(n, action) {
-  if (inflight || !state || state.done) return;
+  if (inflight || !state || state.done || state.reminder?.pending) return;
   inflight = true;
   if ($("pause-moments").checked) n = Math.min(n, 2);  // small batches so the pause lands on the moment
   try {
@@ -392,7 +397,11 @@ async function advance(n, action) {
     if (next.events.length) lastEventId = next.events[next.events.length - 1].id;
     if (events.length > 300) events = events.slice(-300);
     state = next;
-    if (state.done) setPlaying(false);
+    if (state.done || state.reminder?.pending) {
+      setPlaying(false);
+      held.clear();
+      pending = null;
+    }
     if ($("pause-moments").checked && playing) {
       const moment = next.events.map(momentOf).find(Boolean);
       if (moment) { setPlaying(false); toast(moment, "info"); }
@@ -407,9 +416,45 @@ async function advance(n, action) {
 }
 
 function setPlaying(on) {
-  playing = Boolean(on && state && !state.done);
+  playing = Boolean(on && state && !state.done && !state.reminder?.pending);
   $("play").textContent = playing ? "⏸ 일시정지 (P)" : "▶ 재생 (P)";
   budget = 0;
+}
+
+async function respondReminder(choice) {
+  if (inflight || !state?.reminder?.pending) return;
+  inflight = true;
+  $("reminder-stop").disabled = $("reminder-continue").disabled = true;
+  try {
+    state = await api("api/reminder", {session: SESSION, choice, since_event: lastEventId});
+    events.push(...state.events);
+    if (state.events.length) lastEventId = state.events[state.events.length - 1].id;
+    held.clear();
+    pending = null;
+    setPlaying(choice === "continue");
+    render();
+  } catch (err) {
+    toast(err.message);
+  } finally {
+    inflight = false;
+    $("reminder-stop").disabled = $("reminder-continue").disabled = false;
+  }
+}
+
+function renderReminder() {
+  const r = state.reminder;
+  const panel = $("break-reminder");
+  const newlyVisible = panel.hidden && r?.pending;
+  panel.hidden = !(r?.pending || r?.stopped);
+  $("play").disabled = $("step").disabled = Boolean(state.done || r?.pending);
+  if (panel.hidden) return;
+  $("reminder-title").textContent = r.stopped ? "이번 세션을 마쳤습니다" : "잠깐, 계속 보시겠어요?";
+  $("reminder-message").textContent = r.stopped
+    ? `시뮬레이션 ${fmt(state.t, 1)}초에서 그만 보기를 선택했습니다. 다시 시작(R)으로 새 세션을 열 수 있습니다.`
+    : `시뮬레이션 ${fmt(state.t, 1)}초를 사용했습니다. 선택할 때까지 재생이 멈춰 있습니다.`;
+  $("reminder-actions").hidden = r.stopped;
+  $("reminder-continue").textContent = `계속 보기 (${fmt(r.snooze_seconds, 1)}초 뒤 다시 알림)`;
+  if (newlyVisible) $("reminder-stop").focus({preventScroll: true});
 }
 
 function loop(now) {
@@ -490,7 +535,8 @@ function drawPhone() {
   if (state.done) {
     ctx.fillStyle = "rgba(0,0,0,0.65)";
     ctx.fillRect(0, feedTop, w, feedH);
-    text(ctx, "세션 종료", w / 2, feedTop + feedH / 2 - 12, { size: 17, weight: 700, color: "#fff", align: "center" });
+    text(ctx, state.end_reason === "reminder" ? "그만 보기 선택 · 세션 종료" : "세션 종료",
+      w / 2, feedTop + feedH / 2 - 12, { size: 17, weight: 700, color: "#fff", align: "center" });
     text(ctx, `누적 보상 ${fmt(state.return)} · R로 다시 시작`, w / 2, feedTop + feedH / 2 + 14,
       { size: 12, color: "#fff", align: "center" });
   }
@@ -505,7 +551,7 @@ function drawPhone() {
   ctx.globalAlpha = 1;
 
   const pill = $("phone-mode");
-  pill.textContent = state.mode === "WATCH" ? `#${state.current} 보는 중` : state.mode === "TRANSITION" ? "여닫는 중" : "목록 보는 중";
+  pill.textContent = state.done ? "세션 종료" : state.mode === "WATCH" ? `#${state.current} 보는 중` : state.mode === "TRANSITION" ? "여닫는 중" : "목록 보는 중";
   pill.className = `pill ${state.mode}`;
 }
 
@@ -818,7 +864,7 @@ function drawChart() {
 function renderStats() {
   const s = state;
   const rows = [
-    ["지금", { LIST: "목록 보는 중", WATCH: `#${s.current} 보는 중`, TRANSITION: "여닫는 중" }[s.mode]],
+    ["지금", s.done ? "세션 종료" : { LIST: "목록 보는 중", WATCH: `#${s.current} 보는 중`, TRANSITION: "여닫는 중" }[s.mode]],
     ["얻은 재미 (점수)", fmt(s.return)],
     ["본 것에서 얻은 재미", fmt(s.watch_reward)],
     ["뭔지 알아본 수", s.n_understood],
@@ -828,6 +874,12 @@ function renderStats() {
     ["여닫는 데 쓴 시간", `${fmt(s.time_by_mode.TRANSITION, 1)}초`],
     ["방금 한 행동", `${s.last_action ?? "-"}`],
   ];
+  if (s.reminder?.enabled) {
+    rows.push(["그만 보기 알림", s.reminder.stopped ? "종료 선택" : s.reminder.pending ? "응답 대기" : "켜짐"],
+      ["알림 횟수", s.reminder.count]);
+    if (!s.done && !s.reminder.pending && s.reminder.next_at < s.T)
+      rows.push(["다음 알림", `${fmt(s.reminder.next_at, 1)}초`]);
+  }
   const table = $("stats");
   table.innerHTML = "";
   for (const [k, v] of rows) table.insertRow().innerHTML = `<td>${k}</td><td>${v}</td>`;
@@ -866,6 +918,7 @@ function render() {
   renderStats();
   renderEvents();
   renderKeys();
+  renderReminder();
 }
 
 // --- input ---------------------------------------------------------------------------
@@ -877,6 +930,8 @@ function typing(e) {
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") { openDrawer(false); return; }
   if (typing(e) || !state) return;
+  // Let focused buttons keep their native Space/Enter behaviour at the reminder.
+  if (e.target.closest("#break-reminder") && [" ", "Enter"].includes(e.key)) return;
   const key = e.key;
   if (key === "Shift") { held.add("Shift"); return; }
   if (isHuman()) {
@@ -923,6 +978,8 @@ $("policy").addEventListener("change", renderKeys);
 $("defaults").addEventListener("click", setAllDefaults);
 $("scenario").addEventListener("change", () => applyScenario($("scenario").value));
 $("compare-run").addEventListener("click", runCompare);
+$("reminder-stop").addEventListener("click", () => respondReminder("stop"));
+$("reminder-continue").addEventListener("click", () => respondReminder("continue"));
 $("settings").addEventListener("change", () => { $("scenario").value = ""; $("scenario-note").hidden = true; });
 for (const btn of document.querySelectorAll(".step-btn[data-target]")) {
   btn.addEventListener("click", () => {
