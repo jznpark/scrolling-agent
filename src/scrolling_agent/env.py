@@ -65,6 +65,7 @@ MODE_NAMES = ("LIST", "WATCH", "TRANSITION")
 N_SLOT_FEATURES = 9
 N_MEMORY_FEATURES = 6
 N_CURRENT_FEATURES = 4
+N_TOPK_FEATURES = 6
 
 
 def visible_items(scroll: float, n_items: int, screen_h: float, frac: float, columns: int = 1) -> np.ndarray:
@@ -126,7 +127,7 @@ class ScrollingEnv(gym.Env):
             self._n_global
             + N_CURRENT_FEATURES
             + K * N_SLOT_FEATURES
-            + self.n_items * N_MEMORY_FEATURES
+            + self._memory_size()
         )
         self.observation_space = spaces.Box(-np.inf, np.inf, shape=(obs_dim,), dtype=np.float32)
 
@@ -343,6 +344,10 @@ class ScrollingEnv(gym.Env):
                 mask[self.slot_actions[j]] = self.understood[i]
         return mask
 
+    def _memory_size(self) -> int:
+        obs = self.cfg.obs
+        return self.n_items * N_MEMORY_FEATURES if obs.memory == "full" else 1 + obs.top_k * N_TOPK_FEATURES
+
     def observe(self) -> np.ndarray:
         """Current observation (the same vector reset / step return)."""
         return self._obs()
@@ -434,8 +439,23 @@ class ScrollingEnv(gym.Env):
             )
 
         centre_offset = (row + 0.5 - self.scroll - H / 2) / H
-        memory = np.column_stack([self.understood, A_known, lam_known, self.w, x_rel, centre_offset])
-        return np.concatenate([g, cur, slots.ravel(), memory.ravel()]).astype(np.float32)
+        if self.cfg.obs.memory == "full":
+            memory = np.column_stack([self.understood, A_known, lam_known, self.w, x_rel, centre_offset]).ravel()
+        else:
+            memory = self._topk_memory(A_known, lam_known, centre_offset)
+        return np.concatenate([g, cur, slots.ravel(), memory]).astype(np.float32)
+
+    def _topk_memory(self, A_known: np.ndarray, lam_known: np.ndarray, centre_offset: np.ndarray) -> np.ndarray:
+        """Number of understood items, then the top-k of them by known current rate:
+        (present, rate, A, lambda, w, centre offset) each, best first; zero rows pad."""
+        k = self.cfg.obs.top_k
+        known = np.flatnonzero(self.understood)
+        rate = A_known * np.exp(-lam_known * self.w)
+        best = known[np.argsort(-rate[known], kind="stable")][:k]
+        rows = np.zeros((k, N_TOPK_FEATURES))
+        rows[: best.size] = np.column_stack([np.ones(best.size), rate[best], A_known[best], lam_known[best],
+                                              self.w[best], centre_offset[best]])
+        return np.concatenate([[known.size / self.n_items], rows.ravel()])
 
     def _info(self) -> dict[str, Any]:
         return {

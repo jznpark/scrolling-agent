@@ -154,6 +154,25 @@ class AdsConfig:
 
 
 @dataclass
+class ObsConfig:
+    """What the observation vector holds about the items in memory (learning design, not the model).
+
+    "full" lists every item of the feed (draft default, 6 features x n_items). "topk" keeps only
+    the `top_k` understood items with the highest known current rate, sorted, so the network
+    sees a short, position-free shortlist. Both use only what the agent may know.
+    """
+
+    memory: str = "full"                # [TBD] "full" | "topk"
+    top_k: int = 10                     # [TBD] shortlist length for "topk"
+
+    def __post_init__(self) -> None:
+        if self.memory not in ("full", "topk"):
+            raise ValueError(f"obs.memory must be 'full' or 'topk', got {self.memory!r}")
+        if self.top_k < 1:
+            raise ValueError("obs.top_k must be >= 1")
+
+
+@dataclass
 class Config:
     time: TimeConfig = field(default_factory=TimeConfig)
     screen: ScreenConfig = field(default_factory=ScreenConfig)
@@ -162,6 +181,7 @@ class Config:
     estimate: EstimateConfig = field(default_factory=EstimateConfig)
     preview: PreviewConfig = field(default_factory=PreviewConfig)
     ads: AdsConfig = field(default_factory=AdsConfig)
+    obs: ObsConfig = field(default_factory=ObsConfig)
 
 
 def config_from_dict(data: dict) -> Config:
@@ -180,13 +200,13 @@ class TrainConfig:
 
     total_timesteps: int = 1_000_000
     n_envs: int = 8
-    n_steps: int = 1024                 # rollout steps per env per update
+    n_steps: int = 2048                 # rollout steps per env per update (1024 in the pilot)
     batch_size: int = 512
     n_epochs: int = 10
     learning_rate: float = 3e-4
     gamma: float = 0.999                # training discount; evaluation uses the undiscounted return
     gae_lambda: float = 0.95
-    ent_coef: float = 0.01
+    ent_coef: float = 0.001             # 0.01 in the 10-15 pilot (too random: click-back loops)
     target_kl: float = 0.02
     net_arch: tuple[int, ...] = (256, 256)
     eval_freq: int = 50_000             # total env steps between evaluations
