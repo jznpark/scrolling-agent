@@ -51,7 +51,7 @@ import numpy as np
 from gymnasium import spaces
 
 from .config import Config
-from .feed import Feed, generate_feed
+from .feed import Feed, generate_feed, insert_ads
 
 LIST, WATCH, TRANSITION = 0, 1, 2
 MODE_NAMES = ("LIST", "WATCH", "TRANSITION")
@@ -137,6 +137,9 @@ class ScrollingEnv(gym.Env):
         feed = (options or {}).get("feed") or self._fixed_feed
         if feed is None:
             feed = generate_feed(self.cfg.feed, self.n_items, self._rng_feed)
+            # ad-slots extension; a feed passed in by the caller is used as-is
+            if self.cfg.ads.every > 0:
+                feed = insert_ads(feed, self.cfg.ads.every, self.cfg.ads.m_nu_ad)
         elif feed.n != self.n_items:
             raise ValueError(f"feed has {feed.n} items, config expects {self.n_items}")
         self.feed = feed
@@ -149,6 +152,8 @@ class ScrollingEnv(gym.Env):
         self._transition_to = LIST
         self.x = np.zeros(n)
         self.understood = np.zeros(n, dtype=bool)
+        if self.cfg.ads.disclosed:
+            self.understood[self.feed.ads] = True  # labelled ads are known from the start
         self.exposure = np.zeros(n)
         self.w = np.zeros(n)
         self.last_visible = np.full(n, np.nan)  # session time an item was last on screen
@@ -157,6 +162,8 @@ class ScrollingEnv(gym.Env):
         self.understood_hidden = np.zeros(n, dtype=bool)      # ... while the list was hidden (watching)
         self._n_late_clicks = 0
         self._unread_seconds = 0.0  # integral of N (visible unread items) over list time
+        self._ad_clicks = 0
+        self._ad_watch_seconds = 0.0
         self.step_count = 0
         self.time_by_mode = {name: 0.0 for name in MODE_NAMES}
         self.watch_reward_total = 0.0
@@ -191,6 +198,7 @@ class ScrollingEnv(gym.Env):
             self.current = int(self.visible_slots()[self.slot_actions.index(action)])
             self._record_click(self.current)
             self._n_late_clicks += int(self.understood_off_screen[self.current])
+            self._ad_clicks += int(self.feed.ads[self.current])
             self._start_transition(WATCH)
         elif self.mode == WATCH and action == self.back_action:
             self._start_transition(LIST)
@@ -215,6 +223,7 @@ class ScrollingEnv(gym.Env):
             self.time_by_mode["WATCH"] += dt
             if self.auto_preview_item is not None:
                 self._preview_watch_steps += 1
+            self._ad_watch_seconds += dt * int(self.feed.ads[i])
         if self.mode == LIST:
             self.current = None
             self.auto_preview_item = None
@@ -367,6 +376,8 @@ class ScrollingEnv(gym.Env):
         mean_unread_on_screen: time average, over list time, of the number of visible items
             not yet understood (the N of the attention split)
         n_auto_previews: cards opened automatically by the auto-preview extension
+        n_ads, n_ad_clicks, time_watch_ads: sponsored cards in the feed, clicks on them and
+            seconds spent watching them (ad-slots extension)
         """
         list_time = self.time_by_mode["LIST"]
         errors = np.array(self._click_log_errors)
@@ -378,6 +389,9 @@ class ScrollingEnv(gym.Env):
             "n_late_clicks": self._n_late_clicks,
             "mean_unread_on_screen": self._unread_seconds / list_time if list_time else 0.0,
             "n_auto_previews": self.n_auto_previews,
+            "n_ads": int(self.feed.ads.sum()),
+            "n_ad_clicks": self._ad_clicks,
+            "time_watch_ads": self._ad_watch_seconds,
         }
 
     def _obs(self) -> np.ndarray:

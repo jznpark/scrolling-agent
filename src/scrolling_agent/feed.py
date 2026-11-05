@@ -29,20 +29,28 @@ class Feed:
     A: np.ndarray    # initial reward rate
     nu: np.ndarray   # drift (ease of understanding the thumbnail)
     lam: np.ndarray  # reward decay rate (1/s)
+    is_ad: np.ndarray | None = None  # ad-slots extension: sponsored cards (None = no ads)
 
     def __post_init__(self) -> None:
         n = len(self.z)
-        if any(len(a) != n for a in (self.A, self.nu, self.lam)):
+        extra = (self.is_ad,) if self.is_ad is not None else ()
+        if any(len(a) != n for a in (self.A, self.nu, self.lam, *extra)):
             raise ValueError("z, A, nu and lam must have the same length")
 
     @property
     def n(self) -> int:
         return len(self.z)
 
+    @property
+    def ads(self) -> np.ndarray:
+        """Boolean mask of ad positions (all False when the extension is off)."""
+        return self.is_ad if self.is_ad is not None else np.zeros(self.n, dtype=bool)
+
     def reindex(self, order: np.ndarray) -> Feed:
         """The same items shown in `order` (order[k] = index of the item at position k)."""
         order = np.asarray(order)
-        return Feed(z=self.z[order], A=self.A[order], nu=self.nu[order], lam=self.lam[order])
+        return Feed(z=self.z[order], A=self.A[order], nu=self.nu[order], lam=self.lam[order],
+                    is_ad=None if self.is_ad is None else self.is_ad[order])
 
 
 def _check_kappa(kappa: float) -> None:
@@ -75,6 +83,29 @@ def generate_feed(cfg: FeedConfig, n_items: int, rng: np.random.Generator) -> Fe
     nu = np.exp(cfg.m_nu + cfg.d_nu * z + cfg.sigma_nu * eps_nu)
     lam = np.exp(cfg.m_lambda + cfg.sigma_lambda * eps_lam)
     return Feed(z=z, A=A, nu=nu, lam=lam)
+
+
+def insert_ads(feed: Feed, every: int, m_nu_ad: float = 0.0) -> Feed:
+    """Ad-slots extension: replace every `every`-th card with an ad.
+
+    Ads give no watch reward (A = 0, z = 0) and all share the drift exp(m_nu_ad)
+    (how quickly "this is an ad" is realised). Non-ad positions keep their item
+    unchanged, so with `every = 0` (off) the feed is exactly the draft feed.
+    No randomness is used — the same feed always gets the same ads.
+    """
+    if every < 0:
+        raise ValueError(f"every must be >= 0, got {every}")
+    if every == 0:
+        return feed
+    pos = np.arange(every - 1, feed.n, every)
+    z, A, nu, lam = feed.z.copy(), feed.A.copy(), feed.nu.copy(), feed.lam.copy()
+    is_ad = np.zeros(feed.n, dtype=bool)
+    is_ad[pos] = True
+    z[pos] = 0
+    A[pos] = 0.0
+    nu[pos] = np.exp(m_nu_ad)
+    lam[pos] = 1.0  # unused while A = 0; kept positive for the reward formula
+    return Feed(z=z, A=A, nu=nu, lam=lam, is_ad=is_ad)
 
 
 def _sample_types_with_count(n: int, n_ones: int, kappa: float, rng: np.random.Generator) -> np.ndarray:
