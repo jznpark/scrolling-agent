@@ -59,7 +59,7 @@ def condition_config(name: str):
 # --- train ------------------------------------------------------------------------------------
 
 
-def train(names: list[str], seeds: list[int], timesteps: int | None) -> None:
+def train(names: list[str], seeds: list[int], timesteps: int | None, resume: bool = False) -> None:
     # one math thread per process: several runs x 8 env workers oversubscribe the CPU otherwise
     env = {**os.environ, **{k: os.environ.get(k, "1") for k in ("OMP_NUM_THREADS", "MKL_NUM_THREADS",
                                                                  "OPENBLAS_NUM_THREADS")}}
@@ -68,16 +68,23 @@ def train(names: list[str], seeds: list[int], timesteps: int | None) -> None:
         cond = CONDITIONS[name]
         for seed in seeds:
             run = f"{name}/s{seed}"
-            cmd = [sys.executable, str(ROOT / "scripts" / "train_ppo.py"), "--name", run, "--seed", str(seed)]
-            if timesteps:
-                cmd += ["--timesteps", str(timesteps)]
-            if cond["set"]:
-                cmd += ["--set", *cond["set"]]
-            if cond["train"]:
-                cmd += ["--train", *cond["train"]]
+            cmd = [sys.executable, str(ROOT / "scripts" / "train_ppo.py"), "--name", run]
+            if resume and (RUNS / run / "config.json").exists():
+                if (RUNS / run / "final_model.zip").exists():
+                    print(f"skip {run}: already finished")
+                    continue
+                cmd += ["--resume"]  # settings come from the run's config.json
+            else:
+                cmd += ["--seed", str(seed)]
+                if timesteps:
+                    cmd += ["--timesteps", str(timesteps)]
+                if cond["set"]:
+                    cmd += ["--set", *cond["set"]]
+                if cond["train"]:
+                    cmd += ["--train", *cond["train"]]
             log = RUNS / name / f"s{seed}.log"
             log.parent.mkdir(parents=True, exist_ok=True)
-            fh = log.open("w", encoding="utf-8")
+            fh = log.open("a" if resume else "w", encoding="utf-8")
             procs.append((run, subprocess.Popen(cmd, cwd=ROOT, env=env, stdout=fh, stderr=subprocess.STDOUT), fh))
             print(f"started {run}: {' '.join(cmd[2:])}")
     failed = []
@@ -190,6 +197,8 @@ def main() -> None:
     p.add_argument("conditions", nargs="+", choices=list(CONDITIONS))
     p.add_argument("--seeds", type=int, nargs="+", default=[0, 1, 2])
     p.add_argument("--timesteps", type=int, default=None, help="default: TrainConfig.total_timesteps")
+    p.add_argument("--resume", action="store_true",
+                   help="continue interrupted runs from their last checkpoint (finished runs are skipped)")
     p = sub.add_parser("evaluate")
     p.add_argument("conditions", nargs="+", choices=list(CONDITIONS))
     p.add_argument("--episodes", type=int, default=100)
@@ -203,7 +212,7 @@ def main() -> None:
         for name, cond in CONDITIONS.items():
             print(f"{name:<16} set: {' '.join(cond['set']) or '-'}   train: {' '.join(cond['train']) or '-'}")
     elif args.cmd == "train":
-        train(args.conditions, args.seeds, args.timesteps)
+        train(args.conditions, args.seeds, args.timesteps, args.resume)
     elif args.cmd == "evaluate":
         evaluate(args.conditions, args.episodes, args.tune_episodes, args.workers)
     else:

@@ -210,5 +210,6 @@ class TrainConfig:
     target_kl: float = 0.02
     net_arch: tuple[int, ...] = (256, 256)
     eval_freq: int = 50_000             # total env steps between evaluations
+    checkpoint_freq: int = 100_000      # total env steps between last_model.zip saves (for --resume)
     n_eval_episodes: int = 10
     eval_seed: int = 10_000             # evaluation lists / DDM seeds start here (never used in training)
