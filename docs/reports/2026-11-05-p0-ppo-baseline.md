@@ -44,3 +44,18 @@ Option 1 applied (`TrainConfig.decision_steps = 5`, `scrolling_agent/decision.py
 - Deterministic actions still loop on some lists (sd 13.5, clicks 49 ± 58)
 - Still below greedy (87% of it). Training curves peak early (49 on the 10 evaluation lists at 0.4-0.5M decisions) and then fall to 19-43 at 3M -> the remaining problem is training stability / model selection on only 10 lists
 - Next candidates: learning-rate decay (3e-4 -> 0) or 1e-4, select the best model on more evaluation lists (e.g. 30), 1M decisions are enough
+
+## Follow-up: learning-rate decay 3e-4 -> 0 (`topk-k5-lr1m`, `topk-k5-lr3m`, same day)
+Option 2 (part) applied (`TrainConfig.lr_schedule = "linear"`): the rate falls linearly from 3e-4 to 0 over training. Everything else as `topk-k5`. Two lengths, 1M and 3M decisions, 3 seeds each. Tables: `results/p0_ppo/topk-k5-lr{1m,3m}_summary.md`.
+
+| policy (% of reference, 100 unseen lists) | topk-k5 (constant) | **lr1m** | **lr3m** |
+|---|---:|---:|---:|
+| greedy (rho 0.6) | 50.8 | 50.8 | 50.8 |
+| PPO deterministic | 40.8 ± 13.5 | **47.1 ± 9.6** | **46.8 ± 8.4** |
+| PPO sampled | 44.0 ± 5.8 | **47.8 ± 5.2** (seeds 45.4-49.3) | **47.3 ± 5.8** (seeds 46.2-48.1) |
+
+- Training is now stable: the curves no longer fall (final / best on the 10 evaluation lists: lr1m 46-48 / 46-50, lr3m 50-51 / 52; constant rate 19-43 / 49)
+- Clear gain over the constant rate (+4 sampled, +6 deterministic), and the deterministic policy loops less (sd 8-10 instead of 13.5), but loops on a few lists remain (clicks 31 ± 29-38)
+- Still below greedy (93-94% of it). lr3m is not better than lr1m on unseen lists although it scores 52 on the evaluation lists -> the best model is chosen on only 10 lists and that score is optimistic
+- Behaviour vs greedy: PPO understands more items (65-68 vs 59) and reaches further (item 73-75 vs 68) but watches less (57-60 s vs 64 s) -> it explores a little too much
+- Next candidates: select the model on more evaluation lists (e.g. 30), longer watching (check the leaving point vs the rate threshold), 1M decisions with decay is enough for further comparisons
