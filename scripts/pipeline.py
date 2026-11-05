@@ -47,6 +47,9 @@ CONDITIONS: dict[str, dict[str, list[str]]] = {
                      "train": ["decision_steps=5", "lr_schedule='linear'", "total_timesteps=1000000"]},
     "topk-k5-lr3m": {"set": ["obs.memory=topk"],                          # + learning rate 3e-4 -> 0 over 3M decisions
                      "train": ["decision_steps=5", "lr_schedule='linear'", "total_timesteps=3000000"]},
+    "topk-k5-lr1m-ev30": {"set": ["obs.memory=topk"],                     # + best model chosen on 30 separate lists
+                          "train": ["decision_steps=5", "lr_schedule='linear'", "total_timesteps=1000000",
+                                    "n_eval_episodes=30", "eval_seed=30000"]},
     "kappa0.9": {"set": ["obs.memory=topk", "feed.kappa=0.9"], "train": []},     # clustered feed
     "dnu-neg": {"set": ["obs.memory=topk", "feed.d_nu=-0.5"], "train": []},      # good items are harder to read
 }
