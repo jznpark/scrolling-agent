@@ -30,3 +30,17 @@ The difficulty is credit assignment, not capacity: one decision every 0.1 s give
 1. Decision interval on the learning side: each PPO action lasts k steps (e.g. 0.5 s; transitions unchanged). The model (dt = 0.1 s) and the action set stay as agreed; only the agent decides less often
 2. Stabilise: learning rate 3e-4 -> 1e-4 with linear decay, target_kl 0.01, evaluate more lists during training
 3. Shaping only for learning (e.g. a penalty for re-opening an item within 1 s); report evaluation with the original reward
+
+## Follow-up: decision interval 0.5 s (`topk-k5`, same day)
+Option 1 applied (`TrainConfig.decision_steps = 5`, `scrolling_agent/decision.py`): the PPO agent decides at most every 5 env steps; scroll / stay are held, transitions are passed through, a new mode ends the hold. The model (dt = 0.1 s, actions, reward) is unchanged. 3 seeds x 3M decisions (more episodes than the 5M-step runs). Table: `results/p0_ppo/topk-k5_summary.md`.
+
+| policy (% of reference, 100 unseen lists) | base | topk | **topk-k5** |
+|---|---:|---:|---:|
+| greedy (rho 0.6) | 50.8 | 50.8 | 50.8 |
+| PPO deterministic | 24.4 | 27.8 | **40.8 ± 13.5** (seed 2: 46.3) |
+| PPO sampled | 30.1 | 34.5 | **44.0 ± 5.8** (seeds 43.7-45.3) |
+
+- The click -> back loop is almost gone for sampled actions: 27.7 clicks (greedy 29.4), 4.9 re-opened items, 10.9 s in transitions (greedy 11.6), and exploration matches greedy (61 items understood, item 67 reached)
+- Deterministic actions still loop on some lists (sd 13.5, clicks 49 ± 58)
+- Still below greedy (87% of it). Training curves peak early (49 on the 10 evaluation lists at 0.4-0.5M decisions) and then fall to 19-43 at 3M -> the remaining problem is training stability / model selection on only 10 lists
+- Next candidates: learning-rate decay (3e-4 -> 0) or 1e-4, select the best model on more evaluation lists (e.g. 30), 1M decisions are enough
