@@ -370,6 +370,8 @@ class ScrollingEnv(gym.Env):
         w = self.w[i]
         seen = A_hat[i] * np.exp(-lam_hat[i] * w)
         true = self.feed.A[i] * np.exp(-self.feed.lam[i] * w)
+        if true <= 0:  # ad cards carry no fun, so there is nothing to misjudge
+            return
         self._click_log_errors.append(float(np.log(seen / true)))
         self._n_overestimated_clicks += int(seen > true)
 
