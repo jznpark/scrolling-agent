@@ -98,10 +98,16 @@ class GreedyKnown:
 class PPOPolicy:
     """A trained MaskablePPO model with its VecNormalize observation statistics."""
 
-    def __init__(self, model, vecnormalize=None, deterministic: bool = True):
+    def __init__(self, model, vecnormalize=None, deterministic: bool = True, decision_steps: int = 1):
         self.model = model
         self.vecnormalize = vecnormalize
         self.deterministic = deterministic
+        self.decision_steps = decision_steps
+        self._hold = None
+        if decision_steps > 1:
+            from .decision import DecisionHold
+
+            self._hold = DecisionHold(self._decide, decision_steps)
 
     @classmethod
     def load(cls, run_dir: str | Path, which: str = "best", deterministic: bool = True) -> PPOPolicy:
@@ -113,14 +119,19 @@ class PPOPolicy:
         model = MaskablePPO.load(run_dir / f"{which}_model.zip", device="cpu")
         stats = run_dir / f"{which}_vecnormalize.pkl"
         cfg_file = run_dir / "config.json"
-        cfg = config_from_dict(json.loads(cfg_file.read_text())["config"]) if cfg_file.exists() else None
+        stored = json.loads(cfg_file.read_text()) if cfg_file.exists() else {}
+        cfg = config_from_dict(stored["config"]) if "config" in stored else None
+        decision_steps = int(stored.get("train", {}).get("decision_steps", 1))
         vecnormalize = None
         if stats.exists():
             vecnormalize = VecNormalize.load(str(stats), DummyVecEnv([lambda: ScrollingEnv(cfg)]))
             vecnormalize.training = False
-        return cls(model, vecnormalize, deterministic)
+        return cls(model, vecnormalize, deterministic, decision_steps)
 
     def __call__(self, env: ScrollingEnv) -> int:
+        return self._hold(env) if self._hold is not None else self._decide(env)
+
+    def _decide(self, env: ScrollingEnv) -> int:
         obs = env.observe()
         if self.vecnormalize is not None:
             obs = self.vecnormalize.normalize_obs(obs)

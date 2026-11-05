@@ -42,6 +42,7 @@ CONDITIONS: dict[str, dict[str, list[str]]] = {
     "base": {"set": [], "train": []},                                   # draft model, full-memory observation
     "topk": {"set": ["obs.memory=topk"], "train": []},                  # draft model, top-10 known items
     "pilot-settings": {"set": [], "train": ["ent_coef=0.01", "n_steps=1024"]},  # 10-15 pilot hyperparameters
+    "topk-k5": {"set": ["obs.memory=topk"], "train": ["decision_steps=5"]},  # decide every 0.5 s (learning side)
     "kappa0.9": {"set": ["obs.memory=topk", "feed.kappa=0.9"], "train": []},     # clustered feed
     "dnu-neg": {"set": ["obs.memory=topk", "feed.d_nu=-0.5"], "train": []},      # good items are harder to read
 }

@@ -36,6 +36,7 @@ import numpy as np
 from scrolling_agent import ScrollingEnv, TrainConfig
 from scrolling_agent.cli import add_config_args, config_from_args, train_overrides
 from scrolling_agent.config import config_from_dict
+from scrolling_agent.decision import DecisionInterval
 
 
 class CycleSeeds(gym.Wrapper):
@@ -127,8 +128,10 @@ def main() -> None:
         )
 
     # a resumed run draws fresh training lists; +500 stays clear of other seeds and of evaluation
+    hold = ({"wrapper_class": DecisionInterval, "wrapper_kwargs": {"k": train.decision_steps}}
+            if train.decision_steps > 1 else {})  # learning side: decide at most every k env steps
     venv = make_vec_env(ScrollingEnv, n_envs=train.n_envs, seed=seed * 1000 + (500 if start else 0),
-                        env_kwargs={"config": cfg}, vec_env_cls=SubprocVecEnv)
+                        env_kwargs={"config": cfg}, vec_env_cls=SubprocVecEnv, **hold)
     if start:
         venv = VecNormalize.load(str(start[1]), venv)
         venv.training, venv.norm_reward = True, True
@@ -136,7 +139,11 @@ def main() -> None:
         venv = VecNormalize(venv, norm_obs=True, norm_reward=True, gamma=train.gamma)
 
     eval_seeds = list(range(train.eval_seed, train.eval_seed + train.n_eval_episodes))
-    eval_env = DummyVecEnv([lambda: Monitor(CycleSeeds(ScrollingEnv(cfg), eval_seeds))])
+    def make_eval_env():
+        env = CycleSeeds(ScrollingEnv(cfg), eval_seeds)
+        return Monitor(DecisionInterval(env, train.decision_steps) if train.decision_steps > 1 else env)
+
+    eval_env = DummyVecEnv([make_eval_env])
     eval_env = VecNormalize(eval_env, training=False, norm_reward=False)
 
     class SaveVecNormalize(BaseCallback):
