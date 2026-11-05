@@ -25,6 +25,9 @@ Off-screen residual processing (DDMConfig.tau_residual, off by default): once an
 item leaves the screen its evidence keeps growing with a decaying weight, so it
 can be understood (and revealed) off screen.
 
+Attention split (DDMConfig.attention, off by default): the drift of each visible
+unread item is multiplied by h(N), N = number of visible unread items.
+
 Observation (float32 vector, physical units; hidden A, lambda of items not yet
 understood, true nu and latent z are never included; A, lambda are the perceived
 values from `revealed_profile`):
@@ -152,6 +155,7 @@ class ScrollingEnv(gym.Env):
         self.understood_off_screen = np.zeros(n, dtype=bool)  # threshold reached after scrolling away
         self.understood_hidden = np.zeros(n, dtype=bool)      # ... while the list was hidden (watching)
         self._n_late_clicks = 0
+        self._unread_seconds = 0.0  # integral of N (visible unread items) over list time
         self.step_count = 0
         self.time_by_mode = {name: 0.0 for name in MODE_NAMES}
         self.watch_reward_total = 0.0
@@ -241,9 +245,10 @@ class ScrollingEnv(gym.Env):
             self.last_visible[vis] = t0 + (k + 1) * h
             self.gain_last[vis] = gain
             active = vis[~self.understood[vis]]
+            self._unread_seconds += active.size * h
             if active.size == 0:
                 continue
-            drift = self.feed.nu[active] * gain
+            drift = self.feed.nu[active] * gain * ddm.attention_gain(active.size)
             self.x[active] = advance_evidence(self.x[active], drift, ddm.noise, h, self._rng_ddm)
             self.understood[active[self.x[active] >= ddm.threshold]] = True
 
@@ -325,7 +330,10 @@ class ScrollingEnv(gym.Env):
         n_hidden_understood: items understood by residual processing while the list was
             hidden by watching, at the current list position (needs residual_in_watch)
         n_late_clicks: clicks on off-screen-understood items (the agent went back to them)
+        mean_unread_on_screen: time average, over list time, of the number of visible items
+            not yet understood (the N of the attention split)
         """
+        list_time = self.time_by_mode["LIST"]
         errors = np.array(self._click_log_errors)
         return {
             "n_overestimated_clicks": self._n_overestimated_clicks,
@@ -333,6 +341,7 @@ class ScrollingEnv(gym.Env):
             "n_off_screen_understood": int(self.understood_off_screen.sum()),
             "n_hidden_understood": int(self.understood_hidden.sum()),
             "n_late_clicks": self._n_late_clicks,
+            "mean_unread_on_screen": self._unread_seconds / list_time if list_time else 0.0,
         }
 
     def _obs(self) -> np.ndarray:
