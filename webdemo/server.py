@@ -267,7 +267,7 @@ class Session:
             mode_before, current_before = env.mode, env.current
             understood_before = env.understood.copy()
             vf = env.cfg.screen.visible_fraction
-            on_screen_before = set(visible_items(env.scroll, env.n_items, env.screen_h, vf)) if env.mode == LIST else set()
+            on_screen_before = set(visible_items(env.scroll, env.n_items, env.screen_h, vf, env.columns)) if env.mode == LIST else set()
             a = action if action is not None else (self.policy(env) if self.policy else env.stay_action)
             if not 0 <= a < env.n_actions or not env.action_masks()[a]:
                 self._event("invalid", f"지금은 '{self.labels[a] if 0 <= a < env.n_actions else a}'을(를) 할 수 없어 멈춤")
@@ -294,7 +294,7 @@ class Session:
             # "late" = understood without being on screen. Branches with residual processing record it
             # exactly; otherwise an item visible at the start or end of the step counts as on screen.
             off_flags = getattr(env, "understood_off_screen", None)
-            on_screen = on_screen_before | set(visible_items(env.scroll, env.n_items, env.screen_h, vf))
+            on_screen = on_screen_before | set(visible_items(env.scroll, env.n_items, env.screen_h, vf, env.columns))
             for i in np.flatnonzero(env.understood & ~understood_before):
                 late = bool(off_flags[i]) if off_flags is not None else i not in on_screen
                 where = " — 지나간 뒤에 뒤늦게!" if late else ""
@@ -358,6 +358,7 @@ class Session:
             "scroll": round(float(env.scroll), 4),
             "max_scroll": float(env.max_scroll),
             "screen_h": float(env.screen_h),
+            "columns": int(getattr(env, "columns", 1)),  # shopping grid extension; 1 on other branches
             "n_items": env.n_items,
             "slots": [int(i) for i in env.visible_slots()],
             "mask": [bool(m) for m in env.action_masks()],
