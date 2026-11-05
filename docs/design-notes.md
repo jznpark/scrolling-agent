@@ -34,6 +34,9 @@ Source: professor's draft *Scrolling Agent — 초기 연구 설계* v0.1 (2026-
 | 2026-10-15 | Baselines: ScrollFirst (fixed speed down, click the first understood item with rate ≥ rho, back when rate < rho) and GreedyKnown (go to the best known item, also off screen; explore down when none reaches rho). rho tuned on seeds 20000+ |
 | 2026-10-15 | Reference return: all items known, no travel / transition time, watch the item with the largest step reward each step (optimal for decreasing rates) — an upper bound, not the draft's small-environment PPO comparison yet |
 | 2026-10-15 | PPO: MaskablePPO, 8 envs, MLP 256-256, VecNormalize (obs + reward), training gamma 0.999 (evaluation uses the undiscounted return, gamma = 1), target_kl 0.02. Seeds: training seed*1000 + env index, evaluation 10000+, rho tuning 20000+ |
+| 2026-11-05 | Integration: every extension branch merged into main, all off by default (draft behaviour unchanged). Extensions combine multiplicatively where they meet (DDM drift = nu x speed gain x attention gain); ad clicks are left out of the value-estimation error (A = 0); with a grid, "on screen" counts every column |
+| 2026-11-05 | PPO (P0-2): `TrainConfig` ent_coef 0.01 -> 0.001 and n_steps 1024 -> 2048 (the 10-15 pilot fell into click -> back loops). New learning-side option `obs.memory = "topk"`: instead of the full per-item memory (600 values) the observation keeps the number of understood items and the top-k (10) understood items by known current rate (rate, A, lambda, w, position). Default stays "full"; neither reveals hidden values |
+| 2026-11-05 | Evaluation (P0-3/4): `run_episode` reports the kappa experiment's per-step metrics (time by step kind, revisit clicks, end rate, % of reference); `scripts/pipeline.py` runs condition -> PPO seeds -> evaluation (PPO deterministic / sampled, greedy rho fixed on base / re-chosen per condition) -> table |
 
 ## Open questions for the professor
 

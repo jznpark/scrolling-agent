@@ -60,6 +60,9 @@ def condition_config(name: str):
 
 
 def train(names: list[str], seeds: list[int], timesteps: int | None) -> None:
+    # one math thread per process: several runs x 8 env workers oversubscribe the CPU otherwise
+    env = {**os.environ, **{k: os.environ.get(k, "1") for k in ("OMP_NUM_THREADS", "MKL_NUM_THREADS",
+                                                                 "OPENBLAS_NUM_THREADS")}}
     procs = []
     for name in names:
         cond = CONDITIONS[name]
@@ -75,7 +78,7 @@ def train(names: list[str], seeds: list[int], timesteps: int | None) -> None:
             log = RUNS / name / f"s{seed}.log"
             log.parent.mkdir(parents=True, exist_ok=True)
             fh = log.open("w", encoding="utf-8")
-            procs.append((run, subprocess.Popen(cmd, cwd=ROOT, stdout=fh, stderr=subprocess.STDOUT), fh))
+            procs.append((run, subprocess.Popen(cmd, cwd=ROOT, env=env, stdout=fh, stderr=subprocess.STDOUT), fh))
             print(f"started {run}: {' '.join(cmd[2:])}")
     failed = []
     for run, proc, fh in procs:
