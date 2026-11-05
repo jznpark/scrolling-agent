@@ -65,6 +65,16 @@ def replace_file(src: Path, dst: Path, attempts: int = 20) -> None:
             time.sleep(0.25)
 
 
+def learning_rate(train: TrainConfig):
+    """Constant rate, or a linear decay to 0 over training (SB3 passes progress_remaining 1 -> 0)."""
+    if train.lr_schedule == "constant":
+        return train.learning_rate
+    if train.lr_schedule == "linear":
+        lr0 = train.learning_rate
+        return lambda progress_remaining: lr0 * progress_remaining
+    raise SystemExit(f"unknown lr_schedule {train.lr_schedule!r}; use constant or linear")
+
+
 def stored_settings(run_dir: Path) -> tuple[int, object, TrainConfig]:
     """Seed, Config and TrainConfig of an existing run (config.json)."""
     stored = json.loads((run_dir / "config.json").read_text())
@@ -193,7 +203,7 @@ def main() -> None:
             n_steps=train.n_steps,
             batch_size=train.batch_size,
             n_epochs=train.n_epochs,
-            learning_rate=train.learning_rate,
+            learning_rate=learning_rate(train),
             gamma=train.gamma,
             gae_lambda=train.gae_lambda,
             ent_coef=train.ent_coef,

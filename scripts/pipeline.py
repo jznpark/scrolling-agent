@@ -43,6 +43,10 @@ CONDITIONS: dict[str, dict[str, list[str]]] = {
     "topk": {"set": ["obs.memory=topk"], "train": []},                  # draft model, top-10 known items
     "pilot-settings": {"set": [], "train": ["ent_coef=0.01", "n_steps=1024"]},  # 10-15 pilot hyperparameters
     "topk-k5": {"set": ["obs.memory=topk"], "train": ["decision_steps=5"]},  # decide every 0.5 s (learning side)
+    "topk-k5-lr1m": {"set": ["obs.memory=topk"],                          # + learning rate 3e-4 -> 0 over 1M decisions
+                     "train": ["decision_steps=5", "lr_schedule='linear'", "total_timesteps=1000000"]},
+    "topk-k5-lr3m": {"set": ["obs.memory=topk"],                          # + learning rate 3e-4 -> 0 over 3M decisions
+                     "train": ["decision_steps=5", "lr_schedule='linear'", "total_timesteps=3000000"]},
     "kappa0.9": {"set": ["obs.memory=topk", "feed.kappa=0.9"], "train": []},     # clustered feed
     "dnu-neg": {"set": ["obs.memory=topk", "feed.d_nu=-0.5"], "train": []},      # good items are harder to read
 }

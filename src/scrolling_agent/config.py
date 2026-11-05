@@ -204,6 +204,7 @@ class TrainConfig:
     batch_size: int = 512
     n_epochs: int = 10
     learning_rate: float = 3e-4
+    lr_schedule: str = "constant"       # [TBD] "constant" | "linear" (learning_rate -> 0 at the end of training)
     gamma: float = 0.999                # training discount; evaluation uses the undiscounted return
     gae_lambda: float = 0.95
     ent_coef: float = 0.001             # 0.01 in the 10-15 pilot (too random: click-back loops)

@@ -76,3 +76,12 @@ def test_kappa_script_uses_the_shared_metrics():
     assert list(row) == ko.PLAY_COLUMNS
     assert row["time_total"] == pytest.approx(cfg.time.session_seconds)
     assert np.isfinite(row["pct_of_ref"])
+
+
+def test_learning_rate_schedule():
+    train_ppo = load_script("scripts/train_ppo.py")
+    assert train_ppo.learning_rate(TrainConfig()) == 3e-4
+    lin = train_ppo.learning_rate(replace(TrainConfig(), lr_schedule="linear"))
+    assert lin(1.0) == pytest.approx(3e-4) and lin(0.5) == pytest.approx(1.5e-4) and lin(0.0) == 0.0
+    with pytest.raises(SystemExit):
+        train_ppo.learning_rate(replace(TrainConfig(), lr_schedule="cosine"))
