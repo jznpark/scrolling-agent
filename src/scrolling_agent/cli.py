@@ -46,6 +46,18 @@ def apply_overrides(cfg: Config, items: list[str]) -> Config:
     return cfg
 
 
+def train_overrides(train, items: list[str]):
+    """Apply "field=value" strings to a TrainConfig (values are Python literals)."""
+    names = {f.name for f in fields(train)}
+    for item in items:
+        name, sep, raw = item.partition("=")
+        if not sep or name not in names:
+            raise SystemExit(f"bad training override {item!r}; TrainConfig has: {', '.join(sorted(names))}")
+        value = ast.literal_eval(raw)
+        train = replace(train, **{name: tuple(value) if isinstance(value, list) else value})
+    return train
+
+
 def config_from_args(args: argparse.Namespace) -> Config:
     cfg = Config()
     overrides = {name: getattr(args, name) for name in FEED_ARGS.values() if getattr(args, name) is not None}

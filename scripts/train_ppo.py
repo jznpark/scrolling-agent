@@ -2,6 +2,7 @@
 
 Run (PowerShell, venv active):
     python scripts\\train_ppo.py --name pilot --timesteps 1000000 --seed 0
+    python scripts\\train_ppo.py --name topk/s0 --set obs.memory=topk --train ent_coef=0.001
     tensorboard --logdir runs          # learning curves at http://localhost:6006
 
 Writes runs/<name>/:
@@ -24,7 +25,7 @@ from pathlib import Path
 import gymnasium as gym
 
 from scrolling_agent import ScrollingEnv, TrainConfig
-from scrolling_agent.cli import add_config_args, config_from_args
+from scrolling_agent.cli import add_config_args, config_from_args, train_overrides
 
 
 class CycleSeeds(gym.Wrapper):
@@ -48,6 +49,8 @@ def main() -> None:
     parser.add_argument("--timesteps", type=int, default=None, help="default: TrainConfig.total_timesteps")
     parser.add_argument("--n-envs", type=int, default=None)
     parser.add_argument("--gamma", type=float, default=None)
+    parser.add_argument("--train", nargs="+", default=[], metavar="FIELD=VALUE",
+                        help="override any TrainConfig value, e.g. --train ent_coef=0.001 n_steps=2048")
     add_config_args(parser)
     args = parser.parse_args()
 
@@ -61,6 +64,7 @@ def main() -> None:
     cfg = config_from_args(args)
     overrides = {"total_timesteps": args.timesteps, "n_envs": args.n_envs, "gamma": args.gamma}
     train = replace(TrainConfig(), **{k: v for k, v in overrides.items() if v is not None})
+    train = train_overrides(train, args.train)
 
     run_dir = Path("runs") / args.name
     run_dir.mkdir(parents=True, exist_ok=True)
