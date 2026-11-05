@@ -59,3 +59,18 @@ Option 2 (part) applied (`TrainConfig.lr_schedule = "linear"`): the rate falls l
 - Still below greedy (93-94% of it). lr3m is not better than lr1m on unseen lists although it scores 52 on the evaluation lists -> the best model is chosen on only 10 lists and that score is optimistic
 - Behaviour vs greedy: PPO understands more items (65-68 vs 59) and reaches further (item 73-75 vs 68) but watches less (57-60 s vs 64 s) -> it explores a little too much
 - Next candidates: select the model on more evaluation lists (e.g. 30), longer watching (check the leaving point vs the rate threshold), 1M decisions with decay is enough for further comparisons
+
+## Follow-up: leaving point and model selection (same day)
+**Leaving point** (`scripts/experiments/watch_leaving.py`, lr1m models, 100 unseen lists; table `results/p0_ppo/watch_leaving/topk-k5-lr1m_summary.md`):
+- PPO leaves while the rate is still >= 0.6 in about 40% of its backs, and in 93% of those a better item is already known (it switches)
+- A hybrid that keeps PPO in the list but uses the greedy rule while watching scores 48.0% (PPO sampled 47.8%) -> the leaving point is not the cause of the gap
+- The gap is in the list: PPO understands more items (66 vs 59) but opens a smaller share (about 30% vs 51%). It leaves about 15 understood items with A >= 0.6 unopened per session (greedy 0.1), but these are mostly low-value (median A 0.73 vs 1.57 for opened ones; median gain until the rate falls to 0.6 is 0.43)
+
+**Model selection on 30 separate lists** (`topk-k5-lr1m-ev30`: `n_eval_episodes=30`, `eval_seed=30000`). The earlier runs selected the best model on lists 10000-10009, which are also among the 100 test lists:
+
+| policy (% of reference, 100 unseen lists) | lr1m (10 overlapping lists) | **lr1m-ev30** |
+|---|---:|---:|
+| PPO deterministic | 47.1 ± 9.6 | 46.0 ± 11.9 |
+| PPO sampled | 47.8 ± 5.2 | 48.3 ± 5.3 (seeds 46.9-49.3) |
+
+- No meaningful difference: the overlap did not inflate the earlier results, and more selection lists do not close the gap to greedy (50.8%)
