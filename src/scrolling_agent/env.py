@@ -45,6 +45,8 @@ values from `revealed_profile`):
              understood, A, lambda, w]
     memory   n x [understood, A, lambda, w, x / B, offset of item centre from
              screen centre (screen heights)]
+    recent   only with obs.recent: [any understood, A of the newest understood item,
+             seconds since (capped at 10), mean A of the last obs.recent_n]
 """
 
 from __future__ import annotations
@@ -66,6 +68,8 @@ N_SLOT_FEATURES = 9
 N_MEMORY_FEATURES = 6
 N_CURRENT_FEATURES = 4
 N_TOPK_FEATURES = 6
+N_RECENT_FEATURES = 4
+RECENT_CAP_S = 10.0  # seconds-since feature saturates here
 
 
 def visible_items(scroll: float, n_items: int, screen_h: float, frac: float, columns: int = 1) -> np.ndarray:
@@ -128,6 +132,7 @@ class ScrollingEnv(gym.Env):
             + N_CURRENT_FEATURES
             + K * N_SLOT_FEATURES
             + self._memory_size()
+            + (N_RECENT_FEATURES if self.cfg.obs.recent else 0)
         )
         self.observation_space = spaces.Box(-np.inf, np.inf, shape=(obs_dim,), dtype=np.float32)
 
@@ -190,6 +195,10 @@ class ScrollingEnv(gym.Env):
         self._eps_A, self._eps_lam = self._rng_est.standard_normal((2, n))
         self._click_log_errors: list[float] = []
         self._n_overestimated_clicks = 0
+        # recent-context observation (obs.recent): order of understanding, newest last
+        self._recent_items: list[int] = []
+        self._last_understood_step: int | None = None
+        self._understood_noted = self.understood.copy()
         return self._obs(), self._info()
 
     def step(self, action: int):
@@ -243,6 +252,7 @@ class ScrollingEnv(gym.Env):
 
         reward = reward_watch - self.cfg.time.step_cost
         self.step_count += 1
+        self._note_new_understood()
         self._prev_action = action
         self._prev_reward = reward
         terminated = self.step_count >= self.cfg.time.n_steps
@@ -372,6 +382,23 @@ class ScrollingEnv(gym.Env):
         lam_hat = self.feed.lam * np.exp(est.sigma_est * self._eps_lam * fade) if est.noise_lambda else self.feed.lam
         return A_hat, lam_hat
 
+    def _note_new_understood(self) -> None:
+        """Remember items understood this step, top to bottom, so the lowest counts as the newest."""
+        new = np.flatnonzero(self.understood & ~self._understood_noted)
+        if new.size:
+            self._recent_items.extend(int(i) for i in new)
+            del self._recent_items[: -self.cfg.obs.recent_n]
+            self._last_understood_step = self.step_count
+            self._understood_noted = self.understood.copy()
+
+    def _recent_context(self, A_known: np.ndarray) -> np.ndarray:
+        """[any understood yet, A of the newest, seconds since (capped), mean A of the last recent_n]."""
+        if not self._recent_items:
+            return np.zeros(N_RECENT_FEATURES)
+        since = (self.step_count - self._last_understood_step) * self.cfg.time.dt
+        A = A_known[self._recent_items]
+        return np.array([1.0, A[-1], min(since, RECENT_CAP_S), A.mean()])
+
     def _record_click(self, i: int) -> None:
         A_hat, lam_hat = self.estimated_profile()
         w = self.w[i]
@@ -445,7 +472,10 @@ class ScrollingEnv(gym.Env):
             memory = np.column_stack([self.understood, A_known, lam_known, self.w, x_rel, centre_offset]).ravel()
         else:
             memory = self._topk_memory(A_known, lam_known, centre_offset)
-        return np.concatenate([g, cur, slots.ravel(), memory]).astype(np.float32)
+        parts = [g, cur, slots.ravel(), memory]
+        if self.cfg.obs.recent:
+            parts.append(self._recent_context(A_known))
+        return np.concatenate(parts).astype(np.float32)
 
     def _topk_memory(self, A_known: np.ndarray, lam_known: np.ndarray, centre_offset: np.ndarray) -> np.ndarray:
         """Number of understood items, then the top-k of them by known current rate:

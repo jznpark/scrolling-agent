@@ -52,8 +52,12 @@ def test_reorder_off_is_the_default_feed():
     assert np.array_equal(a.feed.A, b.feed.A)
 
 
+B_C_CONDITIONS = ["b6-k0.9-5m", "b6-reorder-k0.9-5m", "b7-recent-k0", "b7-recent-k0.9", "b8-v0.5-f1.5", "b8-v2-f1.5",
+                  "b8-v0.5-f1", "b8-v1-f1", "b8-v2-f1", "c9-dnu-k0", "c9-dnu-k0.9", "c10-est0.6", "c10-attn-log"]
+
+
 @pytest.mark.parametrize("name", ["resid-0.5", "resid-2", "a-base", "a-base-k0.9", "speed2", "speed2-k0.9",
-                                  "speed2-2m", "reorder-k0", "reorder-k0.9"])
+                                  "speed2-2m", "reorder-k0", "reorder-k0.9", *B_C_CONDITIONS])
 def test_conditions_build_a_working_env(name):
     cfg = apply_overrides(Config(), list(pipeline.CONDITIONS[name]["set"]))
     env = ScrollingEnv(cfg)
@@ -108,3 +112,50 @@ def test_rule_policy_has_no_hold_and_counts_every_step_as_a_decision():
     while not terminated:
         _, _, terminated, _, _ = env.step(rec(env))
     assert rec.counts[("decisions", True)][1] == rec.counts[("all", True)][1]
+
+
+def test_b_c_conditions_set_what_they_say():
+    get = lambda name: apply_overrides(Config(), list(pipeline.CONDITIONS[name]["set"]))  # noqa: E731
+    assert get("b8-v2-f1").ddm.v0 == 2.0 and get("b8-v2-f1").screen.speeds == (0.5, 1.0)
+    assert get("b7-recent-k0.9").obs.recent and get("b7-recent-k0.9").feed.reorder_kappa == 0.9
+    assert get("c9-dnu-k0").feed.d_nu == -0.5
+    assert get("c10-est0.6").estimate.sigma_est == 0.6
+    assert get("c10-attn-log").ddm.attention == "log"
+    assert "total_timesteps=5000000" in pipeline.CONDITIONS["b6-k0.9-5m"]["train"]
+
+
+def run_greedy(env, seed):
+    obs, _ = env.reset(seed=seed)
+    policy, frames, terminated = GreedyKnown(0.6), [obs], False
+    while not terminated:
+        obs, _, terminated, _, _ = env.step(policy(env))
+        frames.append(obs)
+    return np.array(frames)
+
+
+def test_recent_context_off_leaves_the_observation_unchanged_and_on_appends_four_features():
+    off, on = Config(), Config()
+    on.obs = replace(on.obs, recent=True)
+    a, b = run_greedy(ScrollingEnv(off), 7), run_greedy(ScrollingEnv(on), 7)
+    assert b.shape[1] == a.shape[1] + 4
+    assert np.array_equal(a, b[:, :-4])  # same trajectory, same base features
+
+
+def test_recent_context_values():
+    cfg = Config()
+    cfg.obs = replace(cfg.obs, recent=True, recent_n=3)
+    env = ScrollingEnv(cfg)
+    obs, _ = env.reset(seed=10_000)
+    assert np.all(obs[-4:] == 0)  # nothing understood yet
+    order, terminated = [], False
+    while not terminated:
+        before = env.understood.copy()
+        obs, _, terminated, _, _ = env.step(env.down_actions[0])
+        new = np.flatnonzero(env.understood & ~before)
+        order.extend(new.tolist())
+        if new.size:
+            A = env.feed.A
+            assert obs[-4] == 1 and obs[-3] == pytest.approx(A[new.max()], rel=1e-6)
+            assert obs[-2] == 0
+            assert obs[-1] == pytest.approx(A[order[-3:]].mean(), rel=1e-6)
+    assert 0 < obs[-2] <= 10.0  # seconds since the last understanding, capped

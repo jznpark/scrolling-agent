@@ -51,6 +51,8 @@ LABELS: dict[str, str] = {
     "ads.m_nu_ad": "광고임을 알아채는 속도",
     "obs.memory": "학습용 기억 방식 (PPO)",
     "obs.top_k": "기억해 두는 후보 수 (PPO)",
+    "obs.recent": "최근 알아본 콘텐츠 기억 (PPO)",
+    "obs.recent_n": "최근 몇 개를 평균낼지 (PPO)",
 }
 
 # "?" explanations: what it is in daily life, and what happens when you raise it.
@@ -129,6 +131,9 @@ DESCRIPTIONS: dict[str, str] = {
     "obs.memory": "학습한 에이전트(PPO)가 머릿속에 무엇을 들고 다니는지입니다. full은 피드 전체 카드를 하나하나 기억하고, "
                   "topk는 '지금 보면 재미있을 것 같은 카드' 몇 개만 순위대로 기억합니다. 규칙 정책에는 영향이 없습니다.",
     "obs.top_k": "topk 방식에서 기억해 두는 후보 카드 수입니다. 클수록 많이 기억하지만 배우기는 더 어려워집니다.",
+    "obs.recent": "켜면 학습한 에이전트(PPO)가 '방금 알아본 카드가 얼마나 재밌어 보였는지, 그게 몇 초 전인지, "
+                  "최근 몇 장의 평균은 어땠는지'를 함께 봅니다. \"요즘 이 근처 괜찮네\"를 알 수 있게 하는 정보입니다. 규칙 정책에는 영향이 없습니다.",
+    "obs.recent_n": "'최근 몇 장의 평균'에서 몇 장을 볼지입니다.",
 }
 
 # Controls of the page itself.

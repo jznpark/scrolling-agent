@@ -43,6 +43,7 @@ _TWO = ["screen.speeds=(0.5,1.5)"]
 _K5 = ["decision_steps=5", "lr_schedule='linear'", "eval_seed=30000"]
 _1M = [*_K5, "total_timesteps=1000000"]
 _2M = [*_K5, "total_timesteps=2000000"]
+_5M30 = [*_K5, "total_timesteps=5000000", "n_eval_episodes=30", "eval_freq=100000"]  # B6
 
 # name -> model overrides ("section.field=value") and training overrides ("field=value")
 CONDITIONS: dict[str, dict[str, list[str]]] = {
@@ -70,6 +71,22 @@ CONDITIONS: dict[str, dict[str, list[str]]] = {
     # A4 same item set per seed, only the order differs
     "reorder-k0": {"set": [*_TOPK, *_TWO, "feed.reorder_kappa=0.0"], "train": _1M},
     "reorder-k0.9": {"set": [*_TOPK, *_TWO, "feed.reorder_kappa=0.9"], "train": _1M},
+    # B6 clustered feeds, long training, best model chosen on 30 separate lists
+    "b6-k0.9-5m": {"set": [*_TOPK, *_TWO, "feed.kappa=0.9"], "train": _5M30},
+    "b6-reorder-k0.9-5m": {"set": [*_TOPK, *_TWO, "feed.reorder_kappa=0.9"], "train": _5M30},
+    # B7 recent context in the observation; controls are reorder-k0 / reorder-k0.9
+    "b7-recent-k0": {"set": [*_TOPK, *_TWO, "feed.reorder_kappa=0.0", "obs.recent=True"], "train": _1M},
+    "b7-recent-k0.9": {"set": [*_TOPK, *_TWO, "feed.reorder_kappa=0.9", "obs.recent=True"], "train": _1M},
+    # B8 perception: v0 and the fast speed, same items clustered; control (v0 1, fast 1.5) is reorder-k0.9
+    **{f"b8-v{v0:g}-f{fast:g}": {"set": [*_TOPK, f"screen.speeds=(0.5,{fast})", "feed.reorder_kappa=0.9",
+                                          f"ddm.v0={v0}"], "train": _1M}
+       for v0, fast in [(0.5, 1.5), (2.0, 1.5), (0.5, 1.0), (1.0, 1.0), (2.0, 1.0)]},
+    # C9 promising items are harder to read (d_nu < 0), two speeds
+    "c9-dnu-k0": {"set": [*_TOPK, *_TWO, "feed.reorder_kappa=0.0", "feed.d_nu=-0.5"], "train": _1M},
+    "c9-dnu-k0.9": {"set": [*_TOPK, *_TWO, "feed.reorder_kappa=0.9", "feed.d_nu=-0.5"], "train": _1M},
+    # C10 value-estimation error and attention split with PPO; control is a-base
+    "c10-est0.6": {"set": [*_TOPK, "estimate.sigma_est=0.6"], "train": _1M},
+    "c10-attn-log": {"set": [*_TOPK, "ddm.attention='log'"], "train": _1M},
     "kappa0.9": {"set": ["obs.memory=topk", "feed.kappa=0.9"], "train": []},     # clustered feed
     "dnu-neg": {"set": ["obs.memory=topk", "feed.d_nu=-0.5"], "train": []},      # good items are harder to read
 }

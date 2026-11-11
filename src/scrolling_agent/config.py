@@ -165,12 +165,17 @@ class ObsConfig:
 
     memory: str = "full"                # [TBD] "full" | "topk"
     top_k: int = 10                     # [TBD] shortlist length for "topk"
+    recent: bool = False                # [exp] add recent context: A of the last understood item, seconds since,
+                                        #       mean A of the last `recent_n` understood items
+    recent_n: int = 5                   # [exp] window of that mean
 
     def __post_init__(self) -> None:
         if self.memory not in ("full", "topk"):
             raise ValueError(f"obs.memory must be 'full' or 'topk', got {self.memory!r}")
         if self.top_k < 1:
             raise ValueError("obs.top_k must be >= 1")
+        if self.recent_n < 1:
+            raise ValueError("obs.recent_n must be >= 1")
 
 
 @dataclass
