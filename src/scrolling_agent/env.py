@@ -57,7 +57,7 @@ import numpy as np
 from gymnasium import spaces
 
 from .config import Config
-from .feed import Feed, generate_feed, insert_ads
+from .feed import Feed, generate_feed, insert_ads, reorder_feed
 
 LIST, WATCH, TRANSITION = 0, 1, 2
 MODE_NAMES = ("LIST", "WATCH", "TRANSITION")
@@ -148,6 +148,8 @@ class ScrollingEnv(gym.Env):
         feed = (options or {}).get("feed") or self._fixed_feed
         if feed is None:
             feed = generate_feed(self.cfg.feed, self.n_items, self._rng_feed)
+            if self.cfg.feed.reorder_kappa is not None:  # same items for a seed, only their order changes
+                feed = reorder_feed(feed, self.cfg.feed.reorder_kappa, self._rng_feed)
             # ad-slots extension; a feed passed in by the caller is used as-is
             if self.cfg.ads.every > 0:
                 feed = insert_ads(feed, self.cfg.ads.every, self.cfg.ads.m_nu_ad)

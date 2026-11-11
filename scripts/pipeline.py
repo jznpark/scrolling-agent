@@ -37,6 +37,13 @@ EVAL_SEED = 10_000
 TUNE_SEED = 20_000
 RHO_GRID = [round(r, 1) for r in np.arange(0.1, 1.51, 0.1)]
 
+# shared by the A tests of 2026-11: best setting so far; best model chosen on lists that are not test lists
+_TOPK = ["obs.memory=topk"]
+_TWO = ["screen.speeds=(0.5,1.5)"]
+_K5 = ["decision_steps=5", "lr_schedule='linear'", "eval_seed=30000"]
+_1M = [*_K5, "total_timesteps=1000000"]
+_2M = [*_K5, "total_timesteps=2000000"]
+
 # name -> model overrides ("section.field=value") and training overrides ("field=value")
 CONDITIONS: dict[str, dict[str, list[str]]] = {
     "base": {"set": [], "train": []},                                   # draft model, full-memory observation
@@ -50,10 +57,23 @@ CONDITIONS: dict[str, dict[str, list[str]]] = {
     "topk-k5-lr1m-ev30": {"set": ["obs.memory=topk"],                     # + best model chosen on 30 separate lists
                           "train": ["decision_steps=5", "lr_schedule='linear'", "total_timesteps=1000000",
                                     "n_eval_episodes=30", "eval_seed=30000"]},
+    # A1 off-screen residual processing + PPO; control is a-base
+    "resid-0.5": {"set": [*_TOPK, "ddm.tau_residual=0.5"], "train": _1M},
+    "resid-2": {"set": [*_TOPK, "ddm.tau_residual=2.0"], "train": _1M},
+    # A2 one speed, same code as the two-speed runs
+    "a-base": {"set": _TOPK, "train": _1M},
+    "a-base-k0.9": {"set": [*_TOPK, "feed.kappa=0.9"], "train": _1M},
+    # two speeds (draft: "later (0.5, 1.5)"); A3 = speed2-2m, A5 analyses speed2 and speed2-k0.9
+    "speed2": {"set": [*_TOPK, *_TWO], "train": _1M},
+    "speed2-k0.9": {"set": [*_TOPK, *_TWO, "feed.kappa=0.9"], "train": _1M},
+    "speed2-2m": {"set": [*_TOPK, *_TWO], "train": _2M},
+    # A4 same item set per seed, only the order differs
+    "reorder-k0": {"set": [*_TOPK, *_TWO, "feed.reorder_kappa=0.0"], "train": _1M},
+    "reorder-k0.9": {"set": [*_TOPK, *_TWO, "feed.reorder_kappa=0.9"], "train": _1M},
     "kappa0.9": {"set": ["obs.memory=topk", "feed.kappa=0.9"], "train": []},     # clustered feed
     "dnu-neg": {"set": ["obs.memory=topk", "feed.d_nu=-0.5"], "train": []},      # good items are harder to read
 }
-TABLE_COLUMNS = ["pct_of_ref", "return", "n_understood", "n_clicks", "rewatch_clicks", "n_short_bouts",
+TABLE_COLUMNS = ["pct_of_ref", "return", "n_understood", "n_clicks", "revisit_clicks", "rewatch_clicks", "n_short_bouts",
                  "time_watch", "time_transition", "time_stay", "max_item_seen"]
 
 

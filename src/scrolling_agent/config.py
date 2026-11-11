@@ -111,6 +111,7 @@ class FeedConfig:
     sigma_nu: float = 0.3
     m_lambda: float = math.log(0.3)     # log lambda mean (1/s)
     sigma_lambda: float = 0.3
+    reorder_kappa: float | None = None  # [exp] keep the generated items, reorder them with this persistence; None = off
 
 
 @dataclass
