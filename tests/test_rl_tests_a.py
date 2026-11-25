@@ -1,5 +1,6 @@
 """A tests: same-items reorder option, two-speed conditions, slow-down index."""
 import importlib.util
+import sys
 from dataclasses import replace
 from pathlib import Path
 
@@ -17,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def load_script(path: str):
     spec = importlib.util.spec_from_file_location(Path(path).stem, ROOT / path)
     module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module  # dataclasses look their module up here
     spec.loader.exec_module(module)
     return module
 
@@ -159,3 +161,36 @@ def test_recent_context_values():
             assert obs[-2] == 0
             assert obs[-1] == pytest.approx(A[order[-3:]].mean(), rel=1e-6)
     assert 0 < obs[-2] <= 10.0  # seconds since the last understanding, capped
+
+
+fr = load_script("scripts/experiments/fair_rules.py")
+
+
+def play_actions(env, policy, seed=10_000):
+    env.reset(seed=seed)
+    actions, terminated = [], False
+    while not terminated:
+        a = policy(env)
+        actions.append(a)
+        _, _, terminated, _, _ = env.step(a)
+    return actions
+
+
+def test_context_speed_with_zero_threshold_is_the_greedy_rule():
+    cfg = apply_overrides(Config(), ["screen.speeds=(0.5,1.5)"])
+    assert play_actions(ScrollingEnv(cfg), fr.ContextSpeed(0.6, 0.25, a_thr=0.0)) == \
+        play_actions(ScrollingEnv(cfg), GreedyKnown(0.6, dwell=0.25))
+
+
+def test_context_speed_goes_fast_after_a_poor_item_and_slow_before_any():
+    cfg = apply_overrides(Config(), ["screen.speeds=(0.5,1.5)"])
+    env = ScrollingEnv(cfg)
+    actions = play_actions(env, fr.ContextSpeed(0.6, 0.0, a_thr=1e9))  # every item counts as poor
+    first_fast = actions.index(env.down_actions[1])
+    assert env.down_actions[0] in actions[:first_fast]  # slow until something is understood
+    assert env.down_actions[0] not in actions[first_fast:]
+
+
+def test_fair_rule_specs_add_speed_rules_only_with_two_speeds():
+    assert {s[0] for s in fr.specs_for(1)} == {"dwell"}
+    assert {s[0] for s in fr.specs_for(2)} == {"dwell", "speed"}
