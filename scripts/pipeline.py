@@ -90,6 +90,9 @@ CONDITIONS: dict[str, dict[str, list[str]]] = {
     "kappa0.9": {"set": ["obs.memory=topk", "feed.kappa=0.9"], "train": []},     # clustered feed
     "dnu-neg": {"set": ["obs.memory=topk", "feed.d_nu=-0.5"], "train": []},      # good items are harder to read
 }
+# B9 (2026-11-26) the clustered B/C conditions again with B6's training: 5M decisions, best model on 30 lists
+B9_LONG = ["b7-recent-k0.9", "b8-v0.5-f1.5", "b8-v2-f1.5", "b8-v0.5-f1", "b8-v1-f1", "b8-v2-f1", "c9-dnu-k0.9"]
+CONDITIONS.update({f"{name}-5m": {"set": list(CONDITIONS[name]["set"]), "train": _5M30} for name in B9_LONG})
 TABLE_COLUMNS = ["pct_of_ref", "return", "n_understood", "n_clicks", "revisit_clicks", "rewatch_clicks", "n_short_bouts",
                  "time_watch", "time_transition", "time_stay", "max_item_seen"]
 

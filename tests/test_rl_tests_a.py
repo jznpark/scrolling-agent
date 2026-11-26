@@ -126,6 +126,15 @@ def test_b_c_conditions_set_what_they_say():
     assert "total_timesteps=5000000" in pipeline.CONDITIONS["b6-k0.9-5m"]["train"]
 
 
+def test_b9_long_runs_differ_from_their_1m_condition_only_in_training():
+    assert len(pipeline.B9_LONG) == 7
+    for name in pipeline.B9_LONG:
+        short, long = pipeline.CONDITIONS[name], pipeline.CONDITIONS[f"{name}-5m"]
+        assert long["set"] == short["set"]
+        assert long["train"] == pipeline.CONDITIONS["b6-reorder-k0.9-5m"]["train"]
+        assert apply_overrides(Config(), list(long["set"])).feed.reorder_kappa == 0.9
+
+
 def run_greedy(env, seed):
     obs, _ = env.reset(seed=seed)
     policy, frames, terminated = GreedyKnown(0.6), [obs], False
